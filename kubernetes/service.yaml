@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: qat-bench-nginx
+  namespace: qat-bench
+spec:
+  selector:
+    app: qat-bench-nginx
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080

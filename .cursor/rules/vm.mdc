@@ -1,0 +1,34 @@
+# VM Provisioning (vm/terraform and vm/ansible)
+
+## SSH public key: file path (no Vault)
+
+- **Do not** store the SSH **public** key in Ansible Vault for this workflow. Use a **path on the provisioner** instead.
+- **Ansible** (`ansible/group_vars/all.yml`):
+  - **`ssh_key_file`** — path to the provisioner’s **public** key file (default **`~/.ssh/id_rsa.pub`**). Tilde is expanded on the controller.
+  - **`ssh_public_key`** — `lookup('file', ssh_key_file | expanduser)` so Terraform roles receive key **material** without a vault.
+  - Override path per run: `-e ssh_key_file=/path/to/id_ed25519.pub`.
+- **Terraform** (standalone `terraform apply`):
+  - **`ssh_key_file`** — same idea; content is `trimspace(file(pathexpand(var.ssh_key_file)))` for **libvirt** cloud-init and **AWS** `aws_key_pair`.
+  - **`terraform.tfvars`**: set `ssh_key_file = "~/.ssh/id_rsa.pub"` (or absolute path); do not paste key material into tfvars unless you intentionally bypass the file path.
+
+## Cloud-init: which user gets the key
+
+- The **cloud-config** `users:` entry must name the account that exists on the image and that you SSH as.
+- **RHEL KVM / cloud images (libvirt):** use **`cloud-user`** — the key goes under that user’s `ssh_authorized_keys` in `user_data`.
+- Terraform should expose **`libvirt_ssh_user`** (or equivalent) defaulting to **`cloud-user`**, and the cloud-init `users:` block must use that same name so `ssh_authorized_keys` applies to the account you SSH as (see **SSH public key: file path** above).
+- **AWS RHEL:** the key pair is registered with EC2; login user is **`ec2-user`** (not set in cloud-init here—AMI/userdata).
+
+## VM SSH users (login)
+
+| Backend  | SSH user   | Notes |
+|----------|------------|--------|
+| **Libvirt** | **cloud-user** | Must match cloud-init `users:` name; key from `ssh_key_file`. |
+| **AWS**     | **ec2-user**   | Key from `aws_key_pair` built from `ssh_key_file` contents. |
+
+- Use **cloud-user** for libvirt/KVM and **ec2-user** for AWS in docs, examples, and outputs (e.g. `ssh cloud-user@<ip>` vs `ssh ec2-user@<ip>`).
+
+## Libvirt boot disk (qcow2 backing store)
+
+- The **boot disk** attached to the guest must be a **qcow2 overlay** whose **backing store** points at a **real qcow2 path under the storage pool**. Referencing only a host path **outside** the pool can produce **empty backing metadata** in libvirt and guests that fail to boot.
+- In Terraform **0.9+** ([terraform-provider-libvirt](https://registry.terraform.io/providers/dmacvicar/libvirt/latest/docs)): import the golden image into the pool with **`libvirt_volume`** + **`create.content.url = file:///…/golden.qcow2`**. For **per-VM qcow2 overlays**, prefer **`virsh vol-create-as … --backing-vol <base-in-pool> --backing-vol-format qcow2`** (wrapped in a **`null_resource`** in this repo) so libvirt’s volume XML keeps a non-empty backing chain; relying on **`libvirt_volume` + `backing_store`** alone has produced empty `<backingStore>` for some users.
+- QEMU uses **copy-on-write** so only the **delta** grows on disk (see [libvirt backing store](https://libvirt.org/formatstorage.html#storage-volume-xml)).

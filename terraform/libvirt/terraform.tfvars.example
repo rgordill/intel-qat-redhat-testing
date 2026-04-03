@@ -1,0 +1,4 @@
+# Copy to terraform.tfvars (not committed). Key is read from file (default ~/.ssh/id_rsa.pub).
+# ssh_key_file    = "~/.ssh/id_rsa.pub"
+# libvirt_ssh_user = "cloud-user"
+# base_image_path = "/var/lib/libvirt/images/rhel-9.6-x86_64-kvm.qcow2"

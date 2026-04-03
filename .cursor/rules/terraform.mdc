@@ -1,0 +1,65 @@
+# Terraform Configuration Standards
+
+## Terraform File Location
+
+All Terraform resources and configuration files must be stored in the root `terraform/` folder of this project, not within Ansible role templates.
+
+## Ansible Integration
+
+When configuring Terraform through Ansible:
+
+- **DO NOT** use Jinja2 templates (`.j2` files) to generate Terraform files
+- **DO** use the `cloud.terraform.terraform` Ansible module (from the `cloud.terraform` collection) to manage Terraform execution
+- **DO** use the `cloud.terraform.terraform_output` module to retrieve Terraform outputs
+
+### Example Usage
+
+```yaml
+- name: Initialize and apply Terraform configuration
+  cloud.terraform.terraform:
+    project_path: "{{ playbook_dir }}/terraform"
+    state: present
+    force_init: true
+    variables:
+      vm_name: "{{ vm_name }}"
+      memory: "{{ vm_memory }}"
+      vcpu: "{{ vm_vcpu }}"
+
+- name: Get Terraform outputs
+  cloud.terraform.terraform_output:
+    project_path: "{{ playbook_dir }}/terraform"
+  register: terraform_outputs
+```
+
+### Variable Management
+
+- Pass variables dynamically using the `variables` parameter of the terraform module
+- For sensitive variables, use the `variables_files` parameter pointing to Ansible-managed var files
+- Store default values in Terraform's `variables.tf` with sensible defaults
+
+### VM SSH Key and Users (vm/terraform)
+
+- **SSH public key**: Accept `ssh_public_key` (content from provisioner `~/.ssh/id_rsa.pub`, supplied via Ansible vault). Libvirt injects it via cloud-init; AWS creates an `aws_key_pair` when set.
+- **VM SSH users**: **cloud-user** (libvirt), **ec2-user** (AWS). See `.cursor/rules/vm.mdc` for full convention.
+
+### Required Collection
+
+Ensure the `cloud.terraform` collection is installed:
+
+```yaml
+# requirements.yml
+collections:
+  - name: cloud.terraform
+```
+
+## Terraform File Structure
+
+```
+terraform/
+├── main.tf           # Main resource definitions
+├── variables.tf      # Variable declarations
+├── outputs.tf        # Output definitions
+├── providers.tf      # Provider configuration
+├── terraform.tfvars  # Default variable values (if needed)
+└── versions.tf       # Terraform and provider version constraints
+```

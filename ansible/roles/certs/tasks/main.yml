@@ -1,0 +1,65 @@
+---
+- name: Ensure certificate directory exists
+  ansible.builtin.file:
+    path: "{{ certs_role_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Generate CA private key
+  community.crypto.openssl_privatekey:
+    path: "{{ certs_role_dir }}/ca.key"
+    mode: "0600"
+
+- name: Generate CA certificate
+  community.crypto.x509_certificate: # noqa: args[module]
+    path: "{{ certs_role_dir }}/ca.crt"
+    privatekey_path: "{{ certs_role_dir }}/ca.key"
+    provider: selfsigned
+    selfsigned_not_after: "+3650d"
+    selfsigned_create_subject_key_identifier: never_create
+    subject:
+      commonName: "{{ certs_role_ca_cn }}"
+    mode: "0644"
+
+- name: Generate server private key
+  community.crypto.openssl_privatekey:
+    path: "{{ certs_role_dir }}/server.key"
+    mode: "0600"
+
+- name: Generate server CSR
+  community.crypto.openssl_csr:
+    path: "{{ certs_role_dir }}/server.csr"
+    privatekey_path: "{{ certs_role_dir }}/server.key"
+    common_name: "{{ certs_role_server_cn }}"
+    subject_alt_name:
+      - "DNS:{{ certs_role_server_cn }}"
+      - "DNS:localhost"
+      - "IP:127.0.0.1"
+
+- name: Sign server certificate with CA
+  community.crypto.x509_certificate: # noqa: args[module]
+    path: "{{ certs_role_dir }}/server.crt"
+    csr_path: "{{ certs_role_dir }}/server.csr"
+    provider: ownca
+    ownca_path: "{{ certs_role_dir }}/ca.crt"
+    ownca_privatekey_path: "{{ certs_role_dir }}/ca.key"
+    ownca_not_after: "+3650d"
+    mode: "0644"
+
+- name: Build HAProxy PEM (cert + key + CA chain)
+  ansible.builtin.shell: |
+    set -euo pipefail
+    cat "{{ certs_role_dir }}/server.crt" "{{ certs_role_dir }}/server.key" "{{ certs_role_dir }}/ca.crt" > "{{ certs_role_dir }}/haproxy.pem"
+    chmod 0600 "{{ certs_role_dir }}/haproxy.pem"
+  args:
+    creates: "{{ certs_role_dir }}/haproxy.pem"
+  changed_when: true
+
+- name: HAProxy PEM ownership
+  ansible.builtin.file:
+    path: "{{ certs_role_dir }}/haproxy.pem"
+    owner: root
+    group: root
+    mode: "0600"

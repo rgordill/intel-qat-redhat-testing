@@ -1,0 +1,4 @@
+---
+# Convenience: same as deploy_benchmark.yml
+- name: Import benchmark deployment playbook
+  import_playbook: deploy_benchmark.yml

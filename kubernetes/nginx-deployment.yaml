@@ -1,0 +1,43 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: qat-bench-nginx
+  namespace: qat-bench
+  labels:
+    app: qat-bench-nginx
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: qat-bench-nginx
+  template:
+    metadata:
+      labels:
+        app: qat-bench-nginx
+    spec:
+      containers:
+        - name: nginx
+          image: registry.access.redhat.com/ubi9/nginx-124:latest
+          ports:
+            - containerPort: 8080
+              name: http
+          volumeMounts:
+            - name: config
+              mountPath: /etc/nginx/conf.d/bench.conf
+              subPath: bench.conf
+      volumes:
+        - name: config
+          configMap:
+            name: qat-bench-nginx-config
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: qat-bench-nginx-config
+  namespace: qat-bench
+data:
+  bench.conf: |
+    server {
+      listen 8080;
+      location / { return 200 'ok\n'; add_header Content-Type text/plain; }
+    }

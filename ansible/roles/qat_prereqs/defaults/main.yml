@@ -1,0 +1,4 @@
+---
+# RHEL package names vary by minor release; override in host_vars for metal.
+qatbench_packages:
+  - qatlib

@@ -1,0 +1,30 @@
+---
+- name: Install wrk build dependencies
+  ansible.builtin.dnf:
+    name:
+      - git
+      - gcc
+      - make
+      - openssl-devel
+    state: present
+
+- name: Clone wrk
+  ansible.builtin.git:
+    repo: https://github.com/wg/wrk.git
+    dest: /opt/wrk
+    version: "4.2.0"
+
+- name: Build wrk
+  ansible.builtin.command:
+    cmd: make
+    chdir: /opt/wrk
+    creates: /opt/wrk/wrk
+  register: wrk_make
+  changed_when: wrk_make.rc == 0
+
+- name: Symlink wrk into PATH
+  ansible.builtin.file:
+    src: /opt/wrk/wrk
+    dest: /usr/local/bin/wrk
+    state: link
+    force: true

@@ -1,0 +1,2 @@
+---
+terraform_libvirt_project_path: "{{ playbook_dir }}/../../terraform/libvirt"

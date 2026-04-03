@@ -1,0 +1,11 @@
+---
+# Usage: ansible-playbook playbooks/terraform_libvirt.yml
+# Requires: group_vars/all.yml (ssh_key_file → ssh_public_key for Terraform)
+- name: Provision libvirt VMs (Terraform)
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars_files:
+    - ../group_vars/all.yml
+  roles:
+    - role: terraform_libvirt

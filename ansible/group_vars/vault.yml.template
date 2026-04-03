@@ -1,0 +1,6 @@
+---
+# Optional: only if you add non-SSH secrets — copy to vault.yml and ansible-vault encrypt.
+# SSH public key is not stored here; use ssh_key_file in group_vars/all.yml.
+#
+# Example:
+# vault_subscription_password: "…"

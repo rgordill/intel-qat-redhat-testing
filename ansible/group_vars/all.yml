@@ -1,0 +1,14 @@
+---
+# SSH public key for Terraform (read on the Ansible controller). See .cursor/rules/vm.mdc
+ssh_key_file: "~/.ssh/id_rsa.pub"
+ssh_public_key: "{{ lookup('file', ssh_key_file | expanduser) }}"
+
+# HAProxy scenario: a | b | c | d | e (see docs/ROUTER_ENV_MAPPING.md)
+haproxy_scenario: "a"
+
+# Software TLS only (libvirt + c7i.large); set true on c7i.metal-24xl after QAT validation
+qatbench_enable_qat: false
+
+# Paths on server (role defaults)
+qatbench_cert_dir: /etc/pki/qat-bench
+qatbench_haproxy_service: haproxy

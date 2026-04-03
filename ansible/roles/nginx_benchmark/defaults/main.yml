@@ -1,0 +1,2 @@
+---
+certs_role_dir: "{{ qatbench_cert_dir | default('/etc/pki/qat-bench') }}"

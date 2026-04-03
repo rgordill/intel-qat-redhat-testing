@@ -1,0 +1,5 @@
+---
+# Overridden by group_vars: a, b, c, d, e
+haproxy_scenario: "a"
+certs_role_dir: "/etc/pki/qat-bench"
+qatbench_enable_qat: false

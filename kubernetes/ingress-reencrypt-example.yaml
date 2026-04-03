@@ -1,0 +1,30 @@
+# Re-encrypt: HTTPS to Ingress → HTTPS to pod (like scenarios d/e).
+# Requires nginx (or app) serving HTTPS on the target port and a Secret with the backend CA
+# (route.openshift.io/destination-ca-certificate-secret). Adjust Service targetPort and
+# Deployment to match your TLS backend; this file is illustrative only.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: qat-bench-reencrypt
+  namespace: qat-bench
+  annotations:
+    route.openshift.io/termination: reencrypt
+    route.openshift.io/destination-ca-certificate-secret: qat-bench-backend-ca
+    cert-manager.io/cluster-issuer: lab-ca-issuer
+spec:
+  ingressClassName: openshift-default
+  tls:
+    - hosts:
+        - qat-bench.apps.example.com
+      secretName: qat-bench-edge-tls
+  rules:
+    - host: qat-bench.apps.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: qat-bench-nginx
+                port:
+                  number: 80

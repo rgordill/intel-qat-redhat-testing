@@ -1,0 +1,915 @@
+---
+description: Kubernetes best practices - prefer vanilla Kubernetes tools over OpenShift-specific tools
+globs: 
+  - "**/*.yaml"
+  - "**/*.yml"
+  - "**/Dockerfile"
+  - "**/*.sh"
+alwaysApply: true
+---
+
+# Kubernetes Best Practices
+
+## Tool Selection Priority
+
+**Primary Rule**: Always use vanilla Kubernetes tools and APIs by default. Only use OpenShift-specific tools when the functionality is not available in standard Kubernetes.
+
+### CLI Tools
+
+#### ✅ PREFER: kubectl (vanilla Kubernetes)
+
+```bash
+# ✅ GOOD - Use kubectl for standard operations
+kubectl get pods -n my-namespace
+kubectl apply -f deployment.yaml
+kubectl logs pod-name
+kubectl exec -it pod-name -- /bin/bash
+kubectl port-forward service/my-service 8080:80
+kubectl create secret generic my-secret --from-literal=key=value
+kubectl scale deployment my-app --replicas=3
+kubectl rollout status deployment/my-app
+kubectl top nodes
+kubectl top pods
+```
+
+#### ⚠️ USE ONLY WHEN NECESSARY: oc (OpenShift)
+
+Only use `oc` when working with OpenShift-specific resources that don't exist in vanilla Kubernetes:
+
+```bash
+# ✅ ACCEPTABLE - OpenShift-specific operations
+oc adm policy add-scc-to-user privileged -z my-sa  # SCCs are OpenShift-specific
+oc get imagestream                       # ImageStreams are OpenShift-specific
+oc new-app                               # OpenShift-specific app creation
+oc get project                           # Projects (but prefer kubectl get namespace)
+
+# ⚠️ DISCOURAGED - Routes (use Ingress with annotations instead)
+oc get route my-route                    # PREFER: kubectl get ingress
+oc create route edge my-route            # PREFER: kubectl apply -f ingress.yaml
+
+# ❌ DEPRECATED - DeploymentConfigs (use Deployments)
+oc get dc                                # Use: kubectl get deployment
+
+# ❌ BAD - Use kubectl instead
+oc get pods                              # Use: kubectl get pods
+oc apply -f deployment.yaml              # Use: kubectl apply -f deployment.yaml
+oc logs pod-name                         # Use: kubectl logs pod-name
+oc exec pod-name -- command              # Use: kubectl exec pod-name -- command
+```
+
+### Resource Definitions
+
+#### Standard Kubernetes Resources (Always Prefer)
+
+```yaml
+# ✅ GOOD - Use standard Kubernetes resources
+
+# Deployment (not DeploymentConfig)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: my-app
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: my-app
+  template:
+    metadata:
+      labels:
+        app: my-app
+    spec:
+      containers:
+        - name: app
+          image: my-image:latest
+
+# Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: my-service
+spec:
+  selector:
+    app: my-app
+  ports:
+    - port: 80
+      targetPort: 8080
+
+# Ingress (standard K8s)
+# On OpenShift: use ingressClassName: openshift-default (not nginx).
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: my-ingress
+spec:
+  ingressClassName: openshift-default  # Use "nginx" on vanilla K8s; "openshift-default" on OpenShift
+  rules:
+    - host: myapp.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: my-service
+                port:
+                  number: 80
+
+# ConfigMap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: my-config
+data:
+  key: value
+
+# Secret
+apiVersion: v1
+kind: Secret
+metadata:
+  name: my-secret
+type: Opaque
+stringData:
+  username: admin
+  password: changeme
+
+# PersistentVolumeClaim
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: my-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: standard  # Use generic storage class names
+```
+
+#### OpenShift-Specific Resources (Use Only When Required)
+
+```yaml
+# ⚠️ STRONGLY DISCOURAGED - Route resource
+# ALWAYS PREFER: Ingress with route.openshift.io annotations
+# Only create Route objects if you have a specific technical reason
+# that cannot be achieved with Ingress + annotations
+
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: my-route
+  annotations:
+    # MUST document why Ingress cannot be used
+    description: "Using Route because: [specific technical reason]"
+spec:
+  host: myapp.apps.cluster.example.com
+  to:
+    kind: Service
+    name: my-service
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+
+# INSTEAD, USE THIS (Ingress on OpenShift):
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: my-ingress
+  annotations:
+    route.openshift.io/termination: edge
+spec:
+  ingressClassName: openshift-default  # Required on OpenShift
+  tls:
+    - hosts: [myapp.apps.cluster.example.com]
+      secretName: my-tls
+  rules:
+    - host: myapp.apps.cluster.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: my-service
+                port:
+                  number: 80
+
+# ImageStream (only for OpenShift image management)
+apiVersion: image.openshift.io/v1
+kind: ImageStream
+metadata:
+  name: my-app
+spec:
+  lookupPolicy:
+    local: false
+
+# BuildConfig (only for OpenShift builds)
+apiVersion: build.openshift.io/v1
+kind: BuildConfig
+metadata:
+  name: my-app
+spec:
+  source:
+    type: Git
+    git:
+      uri: https://github.com/org/repo.git
+  strategy:
+    type: Docker
+```
+
+#### ❌ AVOID: OpenShift Deprecated Resources
+
+```yaml
+# ❌ BAD - DeploymentConfig (deprecated, use Deployment)
+apiVersion: apps.openshift.io/v1
+kind: DeploymentConfig
+# Use: apps/v1 Deployment instead
+
+# ❌ BAD - SecurityContextConstraints in manifests
+# Handle SCCs through RBAC or admission controllers
+# If absolutely necessary, document why it's OpenShift-specific
+```
+
+### Container Images
+
+```yaml
+# ✅ GOOD - Use standard registry paths
+spec:
+  containers:
+    - name: app
+      image: docker.io/library/nginx:latest
+      image: quay.io/organization/app:v1.0.0
+      image: ghcr.io/organization/app:latest
+
+# ⚠️ USE WITH CAUTION - OpenShift internal registry
+spec:
+  containers:
+    - name: app
+      image: image-registry.openshift-image-registry.svc:5000/namespace/app:latest
+      # Only use when ImageStreams are required
+```
+
+### Storage Classes
+
+```bash
+# ✅ GOOD - Use generic or cross-platform storage classes
+storageClassName: standard
+storageClassName: fast
+storageClassName: slow
+
+# ⚠️ DOCUMENT - OpenShift-specific storage
+storageClassName: ocs-storagecluster-ceph-rbd
+storageClassName: ocs-storagecluster-cephfs
+# Document that these are OpenShift Data Foundation specific
+```
+
+### Networking
+
+```yaml
+# ✅ GOOD - Standard Kubernetes NetworkPolicy
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-from-same-namespace
+spec:
+  podSelector:
+    matchLabels:
+      app: my-app
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector: {}
+
+# ✅ GOOD - Standard Kubernetes Ingress with Edge Termination
+# Equivalent to OpenShift Route with edge termination
+# On OpenShift use ingressClassName: openshift-default; on vanilla K8s use nginx (or your controller's class).
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: my-ingress-edge
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+spec:
+  ingressClassName: nginx  # Use openshift-default on OpenShift
+  tls:
+    - hosts:
+        - myapp.example.com
+      secretName: myapp-tls  # TLS terminates at ingress, HTTP to backend
+  rules:
+    - host: myapp.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: my-service
+                port:
+                  number: 80  # HTTP backend
+
+# ✅ GOOD - Ingress with Passthrough (TLS to backend)
+# Equivalent to OpenShift Route with passthrough termination
+# On OpenShift use ingressClassName: openshift-default.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: my-ingress-passthrough
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-passthrough: "true"
+    nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
+spec:
+  ingressClassName: nginx  # Use openshift-default on OpenShift
+  rules:
+    - host: myapp.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: my-service
+                port:
+                  number: 443  # HTTPS backend
+
+# ✅ GOOD - Ingress with Re-encrypt
+# Equivalent to OpenShift Route with reencrypt termination
+# On OpenShift use ingressClassName: openshift-default.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: my-ingress-reencrypt
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
+    nginx.ingress.kubernetes.io/proxy-ssl-verify: "true"
+    nginx.ingress.kubernetes.io/proxy-ssl-secret: "default/backend-ca-cert"
+spec:
+  ingressClassName: nginx  # Use openshift-default on OpenShift
+  tls:
+    - hosts:
+        - myapp.example.com
+      secretName: myapp-tls  # TLS terminates at ingress, re-encrypted to backend
+  rules:
+    - host: myapp.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: my-service
+                port:
+                  number: 443  # HTTPS backend
+
+# ⚠️ USE ONLY ON OPENSHIFT - Route resource (when Ingress unavailable)
+# Only use Routes if:
+# 1. No Ingress controller is available
+# 2. OpenShift-specific routing features are required
+# 3. Native OpenShift router integration is mandatory
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: my-route
+spec:
+  host: myapp.apps.cluster.example.com
+  to:
+    kind: Service
+    name: my-service
+  tls:
+    termination: edge  # Can also be: passthrough, reencrypt
+    insecureEdgeTerminationPolicy: Redirect
+```
+
+### RBAC
+
+```yaml
+# ✅ GOOD - Standard Kubernetes RBAC
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: my-service-account
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: my-role
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: my-rolebinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: my-role
+subjects:
+  - kind: ServiceAccount
+    name: my-service-account
+```
+
+### Security Context
+
+```yaml
+# ✅ GOOD - Standard Kubernetes SecurityContext
+apiVersion: v1
+kind: Pod
+metadata:
+  name: my-pod
+spec:
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    fsGroup: 1000
+    seccompProfile:
+      type: RuntimeDefault
+  containers:
+    - name: app
+      image: my-image
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop:
+            - ALL
+
+# ⚠️ OPENSHIFT ONLY - SCC requirement
+# If you need to use SecurityContextConstraints:
+# 1. Document why standard SecurityContext is insufficient
+# 2. Use kubectl/RBAC where possible
+# 3. Only use 'oc adm policy' when absolutely necessary
+```
+
+### Monitoring and Observability
+
+```yaml
+# ✅ GOOD - Standard Prometheus ServiceMonitor
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: my-app
+spec:
+  selector:
+    matchLabels:
+      app: my-app
+  endpoints:
+    - port: metrics
+      interval: 30s
+
+# ✅ GOOD - Standard Prometheus PodMonitor
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: my-app
+spec:
+  selector:
+    matchLabels:
+      app: my-app
+  podMetricsEndpoints:
+    - port: metrics
+      interval: 30s
+```
+
+## Shell Scripts
+
+### Script Headers
+
+```bash
+#!/bin/bash
+# Use bash for better compatibility
+
+set -euo pipefail  # Exit on error, undefined vars, pipe failures
+```
+
+### CLI Commands in Scripts
+
+```bash
+# ✅ GOOD - Use kubectl by default
+kubectl_or_oc() {
+    if command -v kubectl &> /dev/null; then
+        echo "kubectl"
+    elif command -v oc &> /dev/null; then
+        echo "oc"
+    else
+        echo "ERROR: Neither kubectl nor oc found" >&2
+        exit 1
+    fi
+}
+
+CLI=$(kubectl_or_oc)
+
+# Use the detected CLI
+$CLI get pods -n my-namespace
+
+# ✅ GOOD - Feature detection
+if kubectl api-resources | grep -q "route.openshift.io"; then
+    echo "OpenShift detected, using Routes"
+    kubectl apply -f route.yaml
+else
+    echo "Standard Kubernetes, using Ingress"
+    kubectl apply -f ingress.yaml
+fi
+
+# ❌ BAD - Hardcoded oc usage
+oc get pods  # Use kubectl unless specifically needed
+```
+
+## Helm Charts
+
+```yaml
+# ✅ GOOD - Platform-agnostic Helm values
+# values.yaml
+ingress:
+  enabled: true
+  className: nginx
+  hosts:
+    - host: myapp.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+
+# Platform-specific overrides in separate files
+# values-openshift.yaml
+route:
+  enabled: true  # Enable Route for OpenShift
+ingress:
+  enabled: false  # Disable standard Ingress
+
+# Usage:
+# Standard K8s: helm install myapp ./chart
+# OpenShift: helm install myapp ./chart -f values-openshift.yaml
+```
+
+## Documentation Standards
+
+### When Using OpenShift-Specific Features
+
+Always document:
+1. **Why** vanilla Kubernetes alternatives are insufficient
+2. **What** the OpenShift-specific feature provides
+3. **How** to adapt for vanilla Kubernetes if needed
+
+```yaml
+# Example:
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: my-route
+  annotations:
+    # OPENSHIFT-SPECIFIC: Using Route instead of Ingress because:
+    # - Cluster doesn't have Ingress controller installed
+    # - Native integration with OpenShift router
+    # - For vanilla K8s, use Ingress with nginx-ingress controller
+spec:
+  # ... route spec
+```
+
+## Makefile Targets
+
+```makefile
+# ✅ GOOD - Support both kubectl and oc
+.PHONY: deploy
+deploy:
+	@if command -v kubectl &> /dev/null; then \
+		kubectl apply -f manifests/; \
+	elif command -v oc &> /dev/null; then \
+		oc apply -f manifests/; \
+	else \
+		echo "Error: kubectl or oc required"; \
+		exit 1; \
+	fi
+
+# ✅ GOOD - Separate targets for platform-specific operations
+.PHONY: deploy-ingress
+deploy-ingress:
+	kubectl apply -f ingress.yaml
+
+.PHONY: deploy-route
+deploy-route:
+	oc apply -f route.yaml
+```
+
+## Testing and CI/CD
+
+```yaml
+# ✅ GOOD - CI pipeline supporting both platforms
+# .github/workflows/deploy.yml
+- name: Deploy to Kubernetes
+  if: matrix.platform == 'kubernetes'
+  run: |
+    kubectl apply -f k8s/
+
+- name: Deploy to OpenShift
+  if: matrix.platform == 'openshift'
+  run: |
+    oc apply -f k8s/
+    oc apply -f openshift/  # OpenShift-specific additions
+```
+
+## Migration Path
+
+When you encounter OpenShift-specific resources:
+
+1. **Assess**: Can this be done with vanilla Kubernetes?
+2. **Research**: Check if there's a standard K8s alternative
+3. **Document**: If OpenShift is required, document why
+4. **Isolate**: Keep OpenShift-specific configs in separate files
+5. **Test**: Verify on vanilla Kubernetes when possible
+
+## TLS Termination: Ingress vs Routes
+
+### IngressClassName
+
+- **On OpenShift**: Always set `spec.ingressClassName: openshift-default` on Ingress resources so the default OpenShift router is used.
+- **On vanilla Kubernetes**: Use the class for your ingress controller (e.g. `nginx`).
+
+### cert-manager for edge / reencrypt
+
+- For Ingress with **edge** or **reencrypt** termination (TLS at ingress), add `cert-manager.io/cluster-issuer: lab-ca-issuer` so cert-manager issues the certificate into the Ingress `tls.secretName`. Do not add this for **passthrough** (TLS to backend).
+
+### Project defaults (this repo)
+
+- **Cluster domain**: `apps.ocp.sa-iberia.lab.eng.brq2.redhat.com` — use subdomains (e.g. `couchbase-admin.apps.ocp.sa-iberia.lab.eng.brq2.redhat.com`) in Ingress `host` and `tls.hosts`.
+- **ClusterIssuer**: `lab-ca-issuer` for Ingress TLS (edge/reencrypt).
+
+### Ingress host from ConfigMap (single var)
+
+For Ingresses that share a configurable host (e.g. cluster domain), use a **ConfigMap in the repo** as the var and **Kustomize replacements** to patch the Ingress:
+
+1. Add a ConfigMap (e.g. `ingress-domain.yaml`) with `data.host` (and optionally `data.domain`). Set the default to the project cluster domain; use an overlay to override per environment.
+2. In the kustomization, include that ConfigMap in `resources` and add `replacements` from it (e.g. source: ConfigMap `ingress-domain`, `fieldPath: data.host`; targets: Ingress `spec.rules.0.host` and `spec.tls.0.hosts.0`).
+
+Apply this pattern to **other Ingresses** that need a configurable host: ConfigMap in repo + replacements.
+
+### ✅ PREFER: Ingress with Annotations
+
+Use standard Kubernetes Ingress with appropriate annotations to achieve the same TLS termination as OpenShift Routes:
+
+| OpenShift Route | Kubernetes Ingress (Generic) | OpenShift Ingress Annotation | Description |
+|----------------|------------------------------|------------------------------|-------------|
+| `termination: edge` | TLS + HTTP backend | `route.openshift.io/termination: edge` | TLS terminates at ingress, HTTP to pod |
+| `termination: passthrough` | `ssl-passthrough: "true"` | `route.openshift.io/termination: passthrough` | TLS passes through to pod |
+| `termination: reencrypt` | `backend-protocol: "HTTPS"` | `route.openshift.io/termination: reencrypt` | TLS terminates and re-encrypts to pod |
+
+### Edge Termination (Most Common)
+
+```yaml
+# ✅ BEST - Ingress with edge termination (vanilla K8s; on OpenShift use ingressClassName: openshift-default)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: app-edge
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+spec:
+  ingressClassName: nginx  # openshift-default on OpenShift
+  tls:
+    - hosts: [app.example.com]
+      secretName: app-tls
+  rules:
+    - host: app.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: app-service
+                port:
+                  number: 80  # HTTP backend
+```
+
+```yaml
+# ✅ GOOD - Ingress with OpenShift annotation (if using OpenShift router)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: app-edge
+  annotations:
+    route.openshift.io/termination: edge
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  tls:
+    - hosts: [app.example.com]
+      secretName: app-tls
+  rules:
+    - host: app.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: app-service
+                port:
+                  number: 80  # HTTP backend
+```
+
+```yaml
+# ⚠️ AVOID - OpenShift Route (use Ingress instead)
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: app-edge
+spec:
+  host: app.apps.cluster.example.com
+  to:
+    kind: Service
+    name: app-service
+  tls:
+    termination: edge
+```
+
+### Passthrough Termination
+
+```yaml
+# ✅ BEST - Ingress with passthrough (vanilla K8s)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: app-passthrough
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-passthrough: "true"
+    nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: app.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: app-service
+                port:
+                  number: 443  # HTTPS backend
+```
+
+```yaml
+# ✅ GOOD - Ingress with OpenShift annotation (if using OpenShift router)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: app-passthrough
+  annotations:
+    route.openshift.io/termination: passthrough
+spec:
+  rules:
+    - host: app.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: app-service
+                port:
+                  number: 443  # HTTPS backend
+```
+
+```yaml
+# ⚠️ AVOID - OpenShift Route (use Ingress instead)
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: app-passthrough
+spec:
+  host: app.apps.cluster.example.com
+  to:
+    kind: Service
+    name: app-service
+  tls:
+    termination: passthrough
+```
+
+### Re-encrypt Termination
+
+```yaml
+# ✅ BEST - Ingress with re-encrypt (vanilla K8s)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: app-reencrypt
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
+    nginx.ingress.kubernetes.io/proxy-ssl-verify: "true"
+    nginx.ingress.kubernetes.io/proxy-ssl-secret: "default/backend-ca"
+    nginx.ingress.kubernetes.io/proxy-ssl-name: "app-service.default.svc"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts: [app.example.com]
+      secretName: app-tls
+  rules:
+    - host: app.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: app-service
+                port:
+                  number: 443  # HTTPS backend
+```
+
+```yaml
+# ✅ GOOD - Ingress with OpenShift annotation (if using OpenShift router)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: app-reencrypt
+  annotations:
+    route.openshift.io/termination: reencrypt
+    route.openshift.io/destination-ca-certificate-secret: backend-ca-cert
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  tls:
+    - hosts: [app.example.com]
+      secretName: app-tls
+  rules:
+    - host: app.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: app-service
+                port:
+                  number: 443  # HTTPS backend
+```
+
+```yaml
+# ⚠️ AVOID - OpenShift Route (use Ingress instead)
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: app-reencrypt
+spec:
+  host: app.apps.cluster.example.com
+  to:
+    kind: Service
+    name: app-service
+  tls:
+    termination: reencrypt
+    destinationCACertificate: |
+      -----BEGIN CERTIFICATE-----
+      ...
+      -----END CERTIFICATE-----
+```
+
+### Common Ingress Annotations for TLS
+
+```yaml
+# Vanilla Kubernetes - Nginx Ingress Controller
+nginx.ingress.kubernetes.io/ssl-redirect: "true"
+nginx.ingress.kubernetes.io/ssl-passthrough: "true"
+nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
+nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+nginx.ingress.kubernetes.io/proxy-ssl-verify: "true"
+nginx.ingress.kubernetes.io/proxy-ssl-secret: "namespace/secret-name"
+nginx.ingress.kubernetes.io/proxy-ssl-name: "service.namespace.svc"
+
+# OpenShift - Use with Ingress resource (preferred over Route)
+route.openshift.io/termination: edge           # or passthrough, reencrypt
+route.openshift.io/destination-ca-certificate-secret: secret-name
+route.openshift.io/insecure-policy: Redirect   # or Allow, None
+
+# HAProxy Ingress Controller
+haproxy.org/ssl-passthrough: "true"
+haproxy.org/backend-protocol: "h1-ssl"
+
+# Traefik Ingress Controller
+traefik.ingress.kubernetes.io/router.tls: "true"
+traefik.ingress.kubernetes.io/router.tls.options: "default"
+```
+
+## Summary
+
+**Default Approach**:
+- Use `kubectl` for CLI operations
+- Use standard Kubernetes resources (Deployment, Service, Ingress, etc.)
+- **Use Ingress with annotations for TLS termination (edge/passthrough/reencrypt)**
+- Use generic storage class names
+- Use standard RBAC and SecurityContext
+
+**OpenShift Usage (When Required)**:
+- **Routes**: AVOID - use Ingress with `route.openshift.io/termination` annotation instead
+- ImageStreams (for OpenShift image management)
+- SecurityContextConstraints (when standard SecurityContext insufficient)
+- OpenShift-specific storage classes (document dependency)
+
+**Always Document**:
+- Why OpenShift-specific features are needed
+- How to adapt for vanilla Kubernetes
+- Platform-specific requirements

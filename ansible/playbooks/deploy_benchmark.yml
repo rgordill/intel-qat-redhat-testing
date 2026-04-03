@@ -1,0 +1,20 @@
+---
+# Usage: ansible-playbook -i inventory/hosts.yml playbooks/deploy_benchmark.yml
+- name: Configure benchmark server
+  hosts: server
+  gather_facts: true
+  vars_files:
+    - ../group_vars/all.yml
+  roles:
+    - role: certs
+    - role: nginx_benchmark
+    - role: qat_prereqs
+      when: qatbench_enable_qat | bool
+    - role: haproxy_benchmark
+
+- name: Configure load client
+  hosts: client
+  vars_files:
+    - ../group_vars/all.yml
+  roles:
+    - role: loadtest_client

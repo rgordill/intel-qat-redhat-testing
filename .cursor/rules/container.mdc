@@ -1,0 +1,824 @@
+---
+description: Containerfile best practices - use UBI images and container-agnostic syntax
+globs: 
+  - "**/Containerfile"
+  - "**/Dockerfile"
+  - "**/*.containerfile"
+  - "**/*.dockerfile"
+alwaysApply: true
+---
+
+# Containerfile Best Practices
+
+## File Naming
+
+**Always use**: `Containerfile` (OCI-standard naming)
+
+```bash
+# ✅ GOOD - OCI-standard naming (use this)
+Containerfile
+Containerfile.dev
+Containerfile.prod
+Containerfile.micro
+
+# ❌ AVOID - Legacy Docker naming (don't use)
+Dockerfile        # Use: Containerfile
+Dockerfile.dev    # Use: Containerfile.dev
+Dockerfile.prod   # Use: Containerfile.prod
+```
+
+**Rationale**:
+- `Containerfile` is the OCI (Open Container Initiative) standard name
+- Works with all modern build tools (podman, docker, buildah, nerdctl)
+- Vendor-neutral naming (not tied to Docker)
+- Future-proof and platform-agnostic
+
+All examples in this guide use `Containerfile` naming.
+
+## Build Tool Compatibility
+
+Write Containerfiles that work across multiple build tools:
+
+```bash
+# ✅ ALL THESE SHOULD WORK with your Containerfile
+podman build -t myapp:latest .
+docker build -t myapp:latest .
+buildah bud -t myapp:latest .
+nerdctl build -t myapp:latest .
+
+# ✅ GOOD - Makefile supporting multiple builders
+.PHONY: build
+build:
+	@if command -v podman &> /dev/null; then \
+		podman build -t $(IMAGE):$(TAG) .; \
+	elif command -v docker &> /dev/null; then \
+		docker build -t $(IMAGE):$(TAG) .; \
+	else \
+		echo "Error: podman or docker required"; exit 1; \
+	fi
+```
+
+## Base Images
+
+### ✅ DEFAULT: Red Hat Universal Base Image (UBI) Minimal
+
+UBI Minimal provides a smaller footprint while maintaining enterprise support.
+
+```dockerfile
+# ✅ BEST - UBI 9 Minimal (default choice)
+FROM registry.access.redhat.com/ubi9/ubi-minimal:latest
+
+# Install packages using microdnf
+RUN microdnf install -y \
+    python3 \
+    python3-pip \
+    && microdnf clean all
+```
+
+```dockerfile
+# ✅ GOOD - UBI 9 Minimal with specific version
+FROM registry.access.redhat.com/ubi9/ubi-minimal:9.3
+
+RUN microdnf update -y \
+    && microdnf install -y \
+        nodejs \
+    && microdnf clean all
+```
+
+### ✅ ALTERNATIVE: UBI Micro (Ultra-minimal)
+
+Use UBI Micro for the smallest possible image with no package manager.
+
+```dockerfile
+# ✅ EXCELLENT - UBI 9 Micro for static binaries/minimal runtime
+# Multi-stage build: build in minimal, run in micro
+FROM registry.access.redhat.com/ubi9/ubi-minimal:latest AS builder
+
+RUN microdnf install -y golang \
+    && microdnf clean all
+
+WORKDIR /build
+COPY . .
+RUN go build -o app
+
+# ✅ Final stage: UBI Micro (no package manager, no shell)
+FROM registry.access.redhat.com/ubi9/ubi-micro:latest
+
+COPY --from=builder /build/app /app
+
+USER 1001
+ENTRYPOINT ["/app"]
+```
+
+```dockerfile
+# ✅ GOOD - UBI Micro for static binaries
+FROM registry.access.redhat.com/ubi9/ubi-micro:latest
+
+# Copy pre-built static binary
+COPY --chown=1001:0 app /app
+
+USER 1001
+ENTRYPOINT ["/app"]
+```
+
+### ⚠️ ACCEPTABLE: UBI Standard (when you need full package manager)
+
+```dockerfile
+# ⚠️ USE ONLY WHEN NEEDED - Standard UBI (larger, has yum/dnf)
+FROM registry.access.redhat.com/ubi9/ubi:latest
+
+RUN dnf install -y \
+    httpd \
+    && dnf clean all
+```
+
+### ❌ AVOID: Non-UBI Images (unless specific requirement)
+
+```dockerfile
+# ❌ DISCOURAGED - Alpine (compatibility issues with glibc)
+FROM alpine:latest
+
+# ❌ DISCOURAGED - Debian (larger, no RHEL ecosystem)
+FROM debian:bookworm-slim
+
+# ❌ DISCOURAGED - Ubuntu (larger, no RHEL ecosystem)
+FROM ubuntu:22.04
+
+# Exception: Use non-UBI images only when:
+# 1. Application requires specific base (e.g., official language images)
+# 2. UBI doesn't provide necessary dependencies
+# 3. Document why UBI cannot be used
+```
+
+## Multi-Stage Builds
+
+Always use multi-stage builds to minimize final image size.
+
+### Go Application (UBI Micro Final)
+
+```dockerfile
+# ✅ EXCELLENT - Multi-stage Go build
+FROM registry.access.redhat.com/ubi9/ubi-minimal:latest AS builder
+
+RUN microdnf install -y golang git \
+    && microdnf clean all
+
+WORKDIR /build
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o app .
+
+# Final stage: UBI Micro
+FROM registry.access.redhat.com/ubi9/ubi-micro:latest
+
+COPY --from=builder /build/app /app
+
+USER 1001
+EXPOSE 8080
+
+ENTRYPOINT ["/app"]
+```
+
+### Python Application (UBI Minimal Final)
+
+```dockerfile
+# ✅ EXCELLENT - Multi-stage Python build
+FROM registry.access.redhat.com/ubi9/python-311:latest AS builder
+
+WORKDIR /build
+
+# Install dependencies to a separate location
+COPY requirements.txt .
+RUN pip install --user --no-cache-dir -r requirements.txt
+
+COPY . .
+
+# Final stage: UBI Minimal
+FROM registry.access.redhat.com/ubi9/ubi-minimal:latest
+
+RUN microdnf install -y python3.11 \
+    && microdnf clean all
+
+# Copy Python packages from builder
+COPY --from=builder /opt/app-root/src/.local /opt/app-root/src/.local
+COPY --from=builder /build /app
+
+WORKDIR /app
+
+ENV PATH=/opt/app-root/src/.local/bin:$PATH \
+    PYTHONUNBUFFERED=1
+
+USER 1001
+EXPOSE 8080
+
+CMD ["python3", "app.py"]
+```
+
+### Node.js Application (UBI Minimal Final)
+
+```dockerfile
+# ✅ EXCELLENT - Multi-stage Node.js build
+FROM registry.access.redhat.com/ubi9/nodejs-18:latest AS builder
+
+WORKDIR /build
+
+COPY package*.json ./
+RUN npm ci --only=production
+
+COPY . .
+RUN npm run build
+
+# Final stage: UBI Minimal
+FROM registry.access.redhat.com/ubi9/ubi-minimal:latest
+
+RUN microdnf install -y nodejs \
+    && microdnf clean all
+
+WORKDIR /app
+
+COPY --from=builder /build/dist ./dist
+COPY --from=builder /build/node_modules ./node_modules
+COPY --from=builder /build/package.json .
+
+USER 1001
+EXPOSE 3000
+
+CMD ["node", "dist/index.js"]
+```
+
+### Java Application (UBI Minimal Final)
+
+```dockerfile
+# ✅ EXCELLENT - Multi-stage Java build
+FROM registry.access.redhat.com/ubi9/openjdk-17:latest AS builder
+
+WORKDIR /build
+
+COPY pom.xml .
+COPY src ./src
+
+RUN mvn clean package -DskipTests
+
+# Final stage: UBI Minimal with Java runtime
+FROM registry.access.redhat.com/ubi9/openjdk-17-runtime:latest
+
+COPY --from=builder /build/target/*.jar /app/app.jar
+
+USER 1001
+EXPOSE 8080
+
+ENTRYPOINT ["java", "-jar", "/app/app.jar"]
+```
+
+## Security Best Practices
+
+### Run as Non-Root User
+
+```dockerfile
+# ✅ GOOD - Run as non-root
+FROM registry.access.redhat.com/ubi9/ubi-minimal:latest
+
+RUN microdnf install -y python3 && microdnf clean all
+
+WORKDIR /app
+COPY --chown=1001:0 . .
+
+# Use numeric UID (works better with security policies)
+USER 1001
+
+CMD ["python3", "app.py"]
+```
+
+```dockerfile
+# ✅ GOOD - Create specific user
+FROM registry.access.redhat.com/ubi9/ubi-minimal:latest
+
+RUN microdnf install -y shadow-utils && \
+    useradd -u 1001 -r -g 0 -s /sbin/nologin appuser && \
+    microdnf clean all
+
+WORKDIR /app
+COPY --chown=1001:0 . .
+
+USER 1001
+
+CMD ["./app"]
+```
+
+```dockerfile
+# ❌ BAD - Running as root
+FROM registry.access.redhat.com/ubi9/ubi-minimal:latest
+
+WORKDIR /app
+COPY . .
+
+# Missing USER directive - runs as root!
+CMD ["./app"]
+```
+
+### Minimize Attack Surface
+
+```dockerfile
+# ✅ GOOD - Remove unnecessary tools, use specific versions
+FROM registry.access.redhat.com/ubi9/ubi-minimal:9.3
+
+# Install only what's needed
+RUN microdnf install -y \
+    python3-3.11.5 \
+    && microdnf clean all \
+    && rm -rf /var/cache/yum
+
+# Don't install: curl, wget, bash, shells unless required
+```
+
+```dockerfile
+# ✅ EXCELLENT - UBI Micro has no package manager or shell
+FROM registry.access.redhat.com/ubi9/ubi-micro:latest
+
+COPY --chown=1001:0 app /app
+
+USER 1001
+ENTRYPOINT ["/app"]
+```
+
+### Security Scanning Labels
+
+```dockerfile
+# ✅ GOOD - Add labels for security scanning
+FROM registry.access.redhat.com/ubi9/ubi-minimal:latest
+
+LABEL name="myapp" \
+      version="1.0.0" \
+      vendor="MyOrg" \
+      summary="My Application" \
+      description="Application description" \
+      maintainer="team@example.com" \
+      io.k8s.description="Application description" \
+      io.k8s.display-name="My App" \
+      io.openshift.tags="app,python"
+```
+
+## Layer Optimization
+
+### Combine Commands
+
+```dockerfile
+# ✅ GOOD - Combine RUN commands to reduce layers
+FROM registry.access.redhat.com/ubi9/ubi-minimal:latest
+
+RUN microdnf install -y \
+    python3 \
+    python3-pip \
+    && microdnf clean all \
+    && rm -rf /var/cache/yum
+
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+
+USER 1001
+CMD ["python3", "app.py"]
+```
+
+```dockerfile
+# ❌ BAD - Too many layers
+FROM registry.access.redhat.com/ubi9/ubi-minimal:latest
+
+RUN microdnf install -y python3
+RUN microdnf install -y python3-pip
+RUN microdnf clean all
+RUN rm -rf /var/cache/yum
+
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY . .
+
+USER 1001
+CMD ["python3", "app.py"]
+```
+
+### Order Layers by Change Frequency
+
+```dockerfile
+# ✅ GOOD - Stable layers first, changing layers last
+FROM registry.access.redhat.com/ubi9/ubi-minimal:latest
+
+# 1. Install system packages (rarely changes)
+RUN microdnf install -y python3 python3-pip && microdnf clean all
+
+# 2. Copy dependency files (changes occasionally)
+WORKDIR /app
+COPY requirements.txt .
+
+# 3. Install dependencies (changes occasionally)
+RUN pip install --no-cache-dir -r requirements.txt
+
+# 4. Copy application code (changes frequently)
+COPY . .
+
+USER 1001
+CMD ["python3", "app.py"]
+```
+
+```dockerfile
+# ❌ BAD - Forces rebuild of all layers on code change
+FROM registry.access.redhat.com/ubi9/ubi-minimal:latest
+
+WORKDIR /app
+COPY . .  # Copied early - invalidates all subsequent layers
+
+RUN microdnf install -y python3 python3-pip && microdnf clean all
+RUN pip install --no-cache-dir -r requirements.txt
+
+USER 1001
+CMD ["python3", "app.py"]
+```
+
+## .containerignore / .dockerignore
+
+Always use ignore files to exclude unnecessary files from build context.
+
+```bash
+# ✅ GOOD - .containerignore
+.git
+.gitignore
+*.md
+README.md
+LICENSE
+.github
+.vscode
+.idea
+*.log
+node_modules
+__pycache__
+*.pyc
+.pytest_cache
+.env
+.env.local
+docker-compose.yml
+Makefile
+tests/
+docs/
+*.test
+coverage/
+```
+
+## Health Checks
+
+```dockerfile
+# ✅ GOOD - Include HEALTHCHECK
+FROM registry.access.redhat.com/ubi9/ubi-minimal:latest
+
+RUN microdnf install -y python3 && microdnf clean all
+
+WORKDIR /app
+COPY . .
+
+USER 1001
+EXPOSE 8080
+
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8080/health || exit 1
+
+CMD ["python3", "app.py"]
+```
+
+```dockerfile
+# ✅ ALTERNATIVE - Healthcheck without curl (for minimal images)
+FROM registry.access.redhat.com/ubi9/ubi-minimal:latest
+
+RUN microdnf install -y python3 && microdnf clean all
+
+WORKDIR /app
+COPY healthcheck.sh .
+RUN chmod +x healthcheck.sh
+
+USER 1001
+EXPOSE 8080
+
+HEALTHCHECK --interval=30s --timeout=3s \
+    CMD ["/app/healthcheck.sh"]
+
+CMD ["python3", "app.py"]
+```
+
+## Build Arguments and Environment Variables
+
+```dockerfile
+# ✅ GOOD - Use ARG for build-time, ENV for runtime
+FROM registry.access.redhat.com/ubi9/ubi-minimal:latest
+
+# Build-time arguments
+ARG APP_VERSION=1.0.0
+ARG BUILD_DATE
+ARG VCS_REF
+
+# Runtime environment variables
+ENV APP_VERSION=${APP_VERSION} \
+    APP_HOME=/app \
+    PYTHONUNBUFFERED=1
+
+LABEL version="${APP_VERSION}" \
+      build-date="${BUILD_DATE}" \
+      vcs-ref="${VCS_REF}"
+
+RUN microdnf install -y python3 && microdnf clean all
+
+WORKDIR ${APP_HOME}
+COPY . .
+
+USER 1001
+CMD ["python3", "app.py"]
+```
+
+## Build Script Examples
+
+### Podman (Recommended)
+
+```bash
+#!/bin/bash
+# build.sh - Build with Podman
+
+set -euo pipefail
+
+IMAGE_NAME="myapp"
+IMAGE_TAG="${1:-latest}"
+REGISTRY="${REGISTRY:-quay.io/myorg}"
+
+echo "Building ${IMAGE_NAME}:${IMAGE_TAG}..."
+
+podman build \
+    --format=docker \
+    --tag "${REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}" \
+    --build-arg BUILD_DATE="$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
+    --build-arg VCS_REF="$(git rev-parse --short HEAD)" \
+    .
+
+echo "Build complete: ${REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}"
+
+# Optional: Push to registry
+if [[ "${PUSH:-false}" == "true" ]]; then
+    podman push "${REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}"
+fi
+```
+
+### Buildah (Advanced)
+
+```bash
+#!/bin/bash
+# build-buildah.sh - Build with Buildah
+
+set -euo pipefail
+
+IMAGE_NAME="myapp"
+IMAGE_TAG="${1:-latest}"
+
+# Create a new container
+container=$(buildah from registry.access.redhat.com/ubi9/ubi-minimal:latest)
+
+# Install dependencies
+buildah run $container microdnf install -y python3
+buildah run $container microdnf clean all
+
+# Copy files
+buildah copy $container . /app
+
+# Configure
+buildah config --workingdir /app $container
+buildah config --user 1001 $container
+buildah config --cmd "python3 app.py" $container
+buildah config --port 8080 $container
+
+# Commit to image
+buildah commit $container "${IMAGE_NAME}:${IMAGE_TAG}"
+
+# Cleanup
+buildah rm $container
+```
+
+### Docker (Fallback)
+
+```bash
+#!/bin/bash
+# build-docker.sh - Build with Docker (fallback)
+
+set -euo pipefail
+
+IMAGE_NAME="myapp"
+IMAGE_TAG="${1:-latest}"
+REGISTRY="${REGISTRY:-quay.io/myorg}"
+
+echo "Building ${IMAGE_NAME}:${IMAGE_TAG}..."
+
+docker build \
+    --tag "${REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}" \
+    --build-arg BUILD_DATE="$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
+    --build-arg VCS_REF="$(git rev-parse --short HEAD)" \
+    .
+
+echo "Build complete: ${REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}"
+```
+
+### Universal Build Script
+
+```bash
+#!/bin/bash
+# build-universal.sh - Works with podman, docker, or buildah
+
+set -euo pipefail
+
+IMAGE_NAME="myapp"
+IMAGE_TAG="${1:-latest}"
+REGISTRY="${REGISTRY:-quay.io/myorg}"
+FULL_IMAGE="${REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}"
+
+# Detect available build tool
+if command -v podman &> /dev/null; then
+    BUILDER="podman"
+elif command -v docker &> /dev/null; then
+    BUILDER="docker"
+elif command -v buildah &> /dev/null; then
+    BUILDER="buildah"
+else
+    echo "Error: No container build tool found (podman, docker, or buildah required)"
+    exit 1
+fi
+
+echo "Building with ${BUILDER}: ${FULL_IMAGE}"
+
+case "$BUILDER" in
+    podman|docker)
+        $BUILDER build \
+            --tag "${FULL_IMAGE}" \
+            --build-arg BUILD_DATE="$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
+            --build-arg VCS_REF="$(git rev-parse --short HEAD 2>/dev/null || echo 'unknown')" \
+            .
+        ;;
+    buildah)
+        buildah bud \
+            --tag "${FULL_IMAGE}" \
+            --build-arg BUILD_DATE="$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
+            --build-arg VCS_REF="$(git rev-parse --short HEAD 2>/dev/null || echo 'unknown')" \
+            .
+        ;;
+esac
+
+echo "✓ Build complete: ${FULL_IMAGE}"
+```
+
+## Complete Example: Production-Ready Containerfile
+
+```dockerfile
+# Production-ready Containerfile using UBI Minimal
+# Works with: podman, docker, buildah, nerdctl
+
+# Build arguments
+ARG UBI_VERSION=9.3
+ARG APP_VERSION=1.0.0
+ARG BUILD_DATE
+ARG VCS_REF
+
+# Builder stage
+FROM registry.access.redhat.com/ubi9/ubi-minimal:${UBI_VERSION} AS builder
+
+# Install build dependencies
+RUN microdnf install -y \
+    python3.11 \
+    python3-pip \
+    && microdnf clean all
+
+WORKDIR /build
+
+# Install Python dependencies
+COPY requirements.txt .
+RUN pip install --user --no-cache-dir -r requirements.txt
+
+# Copy application code
+COPY . .
+
+# Optional: Run tests in builder stage
+# RUN python3 -m pytest tests/
+
+# Final stage
+FROM registry.access.redhat.com/ubi9/ubi-minimal:${UBI_VERSION}
+
+# Metadata
+LABEL name="myapp" \
+      version="${APP_VERSION}" \
+      release="1" \
+      summary="My Application" \
+      description="Production application running on UBI Minimal" \
+      maintainer="team@example.com" \
+      vendor="MyOrg" \
+      build-date="${BUILD_DATE}" \
+      vcs-ref="${VCS_REF}" \
+      io.k8s.description="My Application" \
+      io.k8s.display-name="MyApp" \
+      io.openshift.tags="python,app"
+
+# Install runtime dependencies only
+RUN microdnf install -y \
+    python3.11 \
+    && microdnf clean all \
+    && rm -rf /var/cache/yum
+
+# Copy installed packages from builder
+COPY --from=builder --chown=1001:0 /root/.local /opt/app-root/.local
+COPY --from=builder --chown=1001:0 /build /app
+
+WORKDIR /app
+
+# Set environment variables
+ENV PATH=/opt/app-root/.local/bin:$PATH \
+    PYTHONUNBUFFERED=1 \
+    APP_VERSION=${APP_VERSION}
+
+# Run as non-root
+USER 1001
+
+# Expose port
+EXPOSE 8080
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD python3 -c "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')" || exit 1
+
+# Default command
+CMD ["python3", "app.py"]
+```
+
+## Makefile Integration
+
+```makefile
+# Makefile for container builds
+
+IMAGE_NAME ?= myapp
+IMAGE_TAG ?= latest
+REGISTRY ?= quay.io/myorg
+BUILDER ?= $(shell command -v podman 2>/dev/null || command -v docker 2>/dev/null)
+
+.PHONY: build
+build: ## Build container image
+	$(BUILDER) build \
+		-t $(REGISTRY)/$(IMAGE_NAME):$(IMAGE_TAG) \
+		--build-arg BUILD_DATE=$$(date -u +'%Y-%m-%dT%H:%M:%SZ') \
+		--build-arg VCS_REF=$$(git rev-parse --short HEAD) \
+		-f Containerfile .
+
+.PHONY: build-micro
+build-micro: ## Build with UBI Micro base
+	$(BUILDER) build \
+		-t $(REGISTRY)/$(IMAGE_NAME):$(IMAGE_TAG)-micro \
+		-f Containerfile.micro .
+
+.PHONY: push
+push: ## Push image to registry
+	$(BUILDER) push $(REGISTRY)/$(IMAGE_NAME):$(IMAGE_TAG)
+
+.PHONY: scan
+scan: ## Scan image for vulnerabilities
+	@if command -v podman &> /dev/null; then \
+		podman run --rm \
+			-v /var/run/docker.sock:/var/run/docker.sock \
+			aquasec/trivy image $(REGISTRY)/$(IMAGE_NAME):$(IMAGE_TAG); \
+	else \
+		echo "Install trivy or podman for scanning"; \
+	fi
+
+.PHONY: help
+help: ## Show this help
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}'
+```
+
+## Summary
+
+**Best Practices**:
+1. ✅ Use `Containerfile` name (or `Dockerfile` if preferred)
+2. ✅ Write build files compatible with multiple tools (podman, docker, buildah)
+3. ✅ **Default to UBI Minimal** for most applications
+4. ✅ **Use UBI Micro** for static binaries and minimal runtimes
+5. ✅ Use multi-stage builds to minimize final image size
+6. ✅ Run as non-root user (UID 1001)
+7. ✅ Combine RUN commands to reduce layers
+8. ✅ Order layers by change frequency
+9. ✅ Include .containerignore/.dockerignore
+10. ✅ Add health checks
+11. ✅ Include security labels
+12. ✅ Clean package manager caches
+
+**Image Selection**:
+- **Default**: UBI Minimal (`ubi9/ubi-minimal`)
+- **Ultra-minimal**: UBI Micro (`ubi9/ubi-micro`)
+- **Full package manager**: UBI Standard (`ubi9/ubi`)
+- **Language-specific**: UBI language images (python-311, nodejs-18, openjdk-17)
+
+**Build Tools**:
+- **Preferred**: Podman (daemonless, rootless capable)
+- **Alternative**: Docker (widely supported)
+- **Advanced**: Buildah (scriptable, OCI-native)
+- **Write once, build anywhere**: All tools support the same Containerfile format

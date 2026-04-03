@@ -1,0 +1,5 @@
+---
+# Production profile with shared cross-role variable names (group_vars / role defaults).
+profile: production
+skip_list:
+  - var-naming[no-role-prefix]

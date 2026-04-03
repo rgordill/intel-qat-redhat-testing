@@ -1,0 +1,14 @@
+---
+# Copy to hosts.yml and set ansible_host IPs (libvirt: virsh domifaddr; AWS: Terraform output).
+all:
+  children:
+    client:
+      hosts:
+        qat-client:
+          ansible_user: cloud-user
+          ansible_host: 192.168.122.XXX
+    server:
+      hosts:
+        qat-server:
+          ansible_user: cloud-user
+          ansible_host: 192.168.122.YYY

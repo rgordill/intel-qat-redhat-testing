@@ -1,0 +1,268 @@
+# Ansible Best Practices
+
+## Playbook Structure
+
+- **DO NOT** implement tasks directly in playbooks
+- **DO** use roles for all task logic and call those roles from playbooks
+- Playbooks should only contain role invocations, variable definitions, and play-level settings
+
+### Example Playbook Structure
+
+```yaml
+---
+- name: Deploy application
+  hosts: app_servers
+  become: true
+  
+  roles:
+    - role: prerequisites
+    - role: application
+    - role: configure
+```
+
+### Bad Example (avoid this)
+
+```yaml
+---
+- name: Deploy application
+  hosts: app_servers
+  become: true
+  
+  tasks:
+    - name: Install packages
+      ansible.builtin.dnf:
+        name: httpd
+        state: present
+    # ... more tasks directly in playbook
+```
+
+## Role Organization
+
+- Each role should have a single, well-defined responsibility
+- Use `defaults/main.yml` for default variable values that can be overridden
+- Use `vars/main.yml` for role-internal variables that should not be overridden
+- Keep handlers in `handlers/main.yml`
+- Split complex task files using `include_tasks` or `import_tasks`
+
+## Variable Management
+
+- Store environment-specific variables in `group_vars/` and `host_vars/`
+- Prefix role variables with the role name to avoid conflicts (e.g., `rhem_install_packages`)
+
+## Secrets and Vault Management
+
+**All sensitive information MUST be stored in Ansible Vault encrypted files.**
+
+Sensitive data includes:
+- Passwords and API tokens
+- SSH **private** keys (never commit)
+- TLS certificates and private keys
+- Registry credentials
+- Subscription/license keys
+- Any credentials or secrets
+
+### Vault Structure
+
+1. **`vault.yml.template`** - Unencrypted template documenting required vault variables
+   - Committed to git
+   - Contains placeholder values and documentation
+   - Serves as reference for required secrets
+
+2. **`vault.yml`** - Encrypted file with actual secrets
+   - **NEVER committed to git** (added to `.gitignore`)
+   - Created by copying template: `cp vault.yml.template vault.yml`
+   - Encrypted with: `ansible-vault encrypt vault.yml`
+
+### Vault Variable Naming
+
+- Prefix all vault variables with `vault_` (e.g., `vault_registry_password`)
+- Reference vault variables in `all.yml` or role defaults for clarity.
+
+### VM SSH public key (qat / vm — no Vault)
+
+- **SSH public key** for Terraform/libvirt/AWS is **not** vaulted: set **`ssh_key_file`** in `group_vars/all.yml` (default `~/.ssh/id_rsa.pub`) and derive **`ssh_public_key`** with `lookup('file', ssh_key_file | expanduser)` on the controller. Cloud-init must install that key for **`cloud-user`** on RHEL KVM images; see `.cursor/rules/vm.mdc`.
+- Use Vault only for truly sensitive values (tokens, private keys, subscription secrets), not for SSH **public** key material.
+
+### Vault Usage
+
+```bash
+# Create vault from template
+cp group_vars/vault.yml.template group_vars/vault.yml
+ansible-vault encrypt group_vars/vault.yml
+
+# Edit encrypted vault
+ansible-vault edit group_vars/vault.yml
+
+# Run playbook with vault
+ansible-playbook site.yml --ask-vault-pass
+# or
+ansible-playbook site.yml --vault-password-file ~/.vault_pass
+```
+
+### .gitignore Requirements
+
+The following patterns MUST be in `.gitignore`:
+```
+**/vault.yml
+**/secrets.yml
+*.vault
+```
+
+## Task Guidelines
+
+- Always use fully qualified collection names (FQCN) for modules (e.g., `ansible.builtin.file`)
+- Use meaningful task names that describe the action
+- Use `block/rescue/always` for error handling when needed
+- Always set `changed_when` for command/shell tasks when the output can be evaluated
+
+## Avoiding shell and command Modules
+
+**`ansible.builtin.shell` and `ansible.builtin.command` should be used ONLY as a last resort.**
+
+Before using shell/command, verify:
+1. No specific Ansible module exists for the task
+2. The task cannot be split into multiple tasks using specific modules
+
+### Decision Process
+
+1. **Search for a dedicated module first** - Check `ansible.builtin.*`, `community.general.*`, or other collections
+2. **Consider splitting the task** - A complex shell command can often be broken into multiple module-based tasks
+3. **Only then use command/shell** - When no alternative exists
+
+### When shell/command is Acceptable
+
+- Interacting with CLI tools that have no Ansible module (e.g., `terraform`, `oc`, custom scripts)
+- One-off system commands with no module equivalent
+- Checking system state when `ansible.builtin.stat` or similar is insufficient
+
+### When shell/command is Required
+
+If you must use shell/command:
+- Prefer `ansible.builtin.command` over `ansible.builtin.shell` (unless shell features like pipes, redirects are needed)
+- Always set `changed_when` to properly report state changes
+- Use `creates` or `removes` for idempotency when applicable
+- Consider `failed_when` to handle non-standard exit codes
+
+### Bad Example
+
+```yaml
+# BAD: Using shell when modules exist
+- name: Create directory and set permissions
+  ansible.builtin.shell: |
+    mkdir -p /opt/myapp
+    chown root:root /opt/myapp
+    chmod 755 /opt/myapp
+```
+
+### Good Example
+
+```yaml
+# GOOD: Using dedicated modules
+- name: Create application directory
+  ansible.builtin.file:
+    path: /opt/myapp
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+```
+
+### Acceptable Example
+
+```yaml
+# ACCEPTABLE: No module exists for this CLI tool
+- name: Apply Terraform configuration
+  ansible.builtin.command:
+    cmd: terraform apply -auto-approve
+    chdir: "{{ terraform_dir }}"
+  changed_when: "'Apply complete' in terraform_result.stdout"
+  register: terraform_result
+```
+
+## Idempotency
+
+- All tasks must be idempotent (running multiple times produces the same result)
+- Use `creates` or `removes` parameters with command tasks when applicable
+- Test playbooks by running them twice - the second run should report no changes
+
+## File Structure
+
+```
+project/
+├── ansible.cfg
+├── inventory/
+│   └── hosts.yml
+├── group_vars/
+│   ├── all.yml
+│   └── vault.yml
+├── playbooks/           # Or site.yml at root
+│   └── deploy.yml
+├── roles/
+│   └── role_name/
+│       ├── defaults/
+│       ├── handlers/
+│       ├── tasks/
+│       ├── templates/
+│       └── vars/
+└── requirements.yml
+```
+
+## Collections
+
+- Define required collections in `requirements.yml`
+- Specify minimum version constraints for collections
+- Install collections before running playbooks: `ansible-galaxy collection install -r requirements.yml`
+
+## Linting with ansible-lint
+
+**All Ansible code MUST pass ansible-lint checks before being committed.**
+
+### Running ansible-lint
+
+```bash
+# Check entire project
+ansible-lint
+
+# Check specific file
+ansible-lint roles/my_role/tasks/main.yml
+
+# Auto-fix issues where possible
+ansible-lint --fix
+```
+
+### Common Rules to Follow
+
+- `yaml[truthy]` - Use `true`/`false` instead of `yes`/`no` for booleans
+- `yaml[line-length]` - Keep lines under 160 characters (use folded/literal blocks for long strings)
+- `name[missing]` - All tasks must have a `name`
+- `name[casing]` - Task names should start with uppercase letter
+- `fqcn[action-core]` - Use fully qualified collection names
+- `risky-shell-pipe` - Avoid pipes in shell commands or handle errors properly
+- `no-changed-when` - Set `changed_when` for command/shell tasks
+- `command-instead-of-shell` - Use command instead of shell when no shell features needed
+
+### Configuration
+
+Create `.ansible-lint` in project root for custom configuration:
+
+```yaml
+---
+profile: production
+
+exclude_paths:
+  - .git/
+  - .cache/
+  - venv/
+
+skip_list:
+  - role-name  # Allow role names with underscores
+
+warn_list:
+  - experimental
+```
+
+### Integration
+
+- Run ansible-lint in CI/CD pipelines
+- Configure pre-commit hooks to run ansible-lint automatically
+- Fix all errors before committing; warnings should be addressed when possible

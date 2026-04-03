@@ -1,0 +1,14 @@
+---
+- name: Install QAT user-space packages
+  ansible.builtin.dnf:
+    name: "{{ qatbench_packages }}"
+    state: present
+
+- name: Document Intel QAT guest steps
+  ansible.builtin.copy:
+    dest: /etc/qat-bench/README-intel-qat.txt
+    mode: "0644"
+    content: |
+      See https://intel.github.io/quickassist/qatlib/running_in_vm.html
+      On bare metal (c7i.metal-24xl): verify lspci, vfio/qat drivers, /etc/sysconfig/qat, qatmgr.
+      Run scripts/utils/gates.sh on the host after SSH (extend for QAT checks).

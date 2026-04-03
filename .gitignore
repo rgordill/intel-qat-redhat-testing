@@ -1,0 +1,11 @@
+**/vault.yml
+**/secrets.yml
+*.vault
+ansible/collections/
+.terraform/
+*.tfstate
+*.tfstate.*
+.terraform.lock.hcl
+crash.log
+*.pem
+!ansible/roles/certs/files/.gitkeep
