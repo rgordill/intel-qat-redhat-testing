@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Example: export a subset of OpenShift router-style env vars before manual edits to /etc/haproxy/haproxy.cfg.
+# Example: export a subset of OpenShift router-style env vars before manual edits to
+# /var/lib/haproxy/conf/haproxy.config (Ansible deploys there; see docs/ROUTER_ENV_MAPPING.md).
 # Ansible is the supported path; this script documents parity experiments only.
 set -euo pipefail
 export ROUTER_MAX_CONNECTIONS="${ROUTER_MAX_CONNECTIONS:-50000}"

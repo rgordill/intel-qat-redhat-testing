@@ -1,0 +1,128 @@
+---
+- name: Install HAProxy
+  ansible.builtin.dnf:
+    name: haproxy
+    state: present
+
+- name: Detect SELinux mode
+  ansible.builtin.command:
+    cmd: getenforce
+  register: qatbench_getenforce
+  changed_when: false
+
+- name: Allow HAProxy to connect backends (SELinux)
+  ansible.builtin.command:
+    cmd: setsebool -P haproxy_connect_any on
+  when: qatbench_getenforce.stdout == 'Enforcing'
+  changed_when: true
+
+- name: Ensure HAProxy config and state directories exist
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: haproxy
+    mode: "0750"
+  loop:
+    - "{{ haproxy_conf_dir }}"
+    - "{{ haproxy_run_dir }}"
+    - "{{ haproxy_router_certs_dir }}"
+    - "{{ haproxy_router_cacerts_dir }}"
+
+- name: Deploy HAProxy main config
+  ansible.builtin.copy:
+    src: conf/haproxy.config
+    dest: "{{ haproxy_conf_dir }}/haproxy.config"
+    owner: root
+    group: haproxy
+    mode: "0640"
+  notify: Restart haproxy
+
+- name: Deploy HAProxy map files (templates)
+  ansible.builtin.template:
+    src: "{{ item.src }}"
+    dest: "{{ haproxy_conf_dir }}/{{ item.dest }}"
+    owner: root
+    group: haproxy
+    mode: "0640"
+  loop:
+    - { src: conf/os_http_be.map.j2, dest: os_http_be.map }
+    - { src: conf/os_tcp_be.map.j2, dest: os_tcp_be.map }
+    - { src: conf/os_route_http_redirect.map.j2, dest: os_route_http_redirect.map }
+    - { src: conf/os_edge_reencrypt_be.map.j2, dest: os_edge_reencrypt_be.map }
+    - { src: conf/os_sni_passthrough.map.j2, dest: os_sni_passthrough.map }
+  notify: Restart haproxy
+
+- name: Deploy HAProxy static error pages
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "{{ haproxy_conf_dir }}/{{ item | basename }}"
+    owner: root
+    group: haproxy
+    mode: "0644"
+  loop:
+    - conf/error-page-503.http
+    - conf/error-page-404.http
+  notify: Restart haproxy
+
+- name: Install default TLS bundle for HAProxy router (crt-list)
+  ansible.builtin.copy:
+    src: "{{ certs_role_dir }}/haproxy.pem"
+    dest: "{{ haproxy_router_certs_dir }}/default.pem"
+    remote_src: true
+    owner: root
+    group: haproxy
+    mode: "0640"
+    force: true
+  notify: Restart haproxy
+
+- name: Install nginx backend CA for HAProxy TLS verify (re-encrypt)
+  ansible.builtin.copy:
+    src: "{{ certs_role_dir }}/ca.crt"
+    dest: "{{ haproxy_router_cacerts_dir }}/nginx.pem"
+    remote_src: true
+    owner: root
+    group: haproxy
+    mode: "0644"
+    force: true
+  notify: Restart haproxy
+
+- name: Deploy HAProxy crt-list map
+  ansible.builtin.template:
+    src: cert_config.map.j2
+    dest: "{{ haproxy_conf_dir }}/cert_config.map"
+    owner: root
+    group: haproxy
+    mode: "0640"
+  notify: Restart haproxy
+
+- name: Ensure HAProxy systemd drop-in directory exists
+  ansible.builtin.file:
+    path: /etc/systemd/system/haproxy.service.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Deploy HAProxy systemd override (paths under /var/lib/haproxy)
+  ansible.builtin.template:
+    src: haproxy.service.d-qatbench.conf.j2
+    dest: /etc/systemd/system/haproxy.service.d/qatbench.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart haproxy
+
+- name: Verify HAProxy configuration
+  ansible.builtin.command:
+    cmd: haproxy -c -f {{ haproxy_conf_dir }}/haproxy.config
+  changed_when: false
+
+- name: Apply HAProxy config and unit (restart if notified)
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable and start HAProxy
+  ansible.builtin.systemd:
+    name: haproxy
+    state: started
+    enabled: true

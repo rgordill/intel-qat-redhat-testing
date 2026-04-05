@@ -1,0 +1,6 @@
+---
+galaxy_info:
+  role_name: rhel_subscription
+  description: Register RHEL with RHSM using organization ID and activation key
+collections:
+  - community.general

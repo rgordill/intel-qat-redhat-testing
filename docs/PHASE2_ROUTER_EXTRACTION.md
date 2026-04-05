@@ -23,7 +23,7 @@ Optional **byte-level** parity with the cluster router (per plan choice **C**, p
    kubectl -n openshift-ingress exec "$ROUTER_POD" -c router -- ls /var/lib/haproxy/conf/
    ```
 
-4. For a **single** Route/Ingress that mirrors bench scenario (edge vs reencrypt), diff the relevant `backend` / `frontend` stanzas against `ansible/roles/haproxy_benchmark/templates/haproxy.cfg.j2`.
+4. For a **single** Route/Ingress that mirrors bench scenario (edge vs reencrypt), diff the relevant `backend` / `frontend` stanzas against `ansible/roles/haproxy_server/templates/haproxy.cfg.j2`.
 
 ## Optional Go harness
 

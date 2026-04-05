@@ -1,0 +1,15 @@
+---
+# Group `client` — benchmark load generator VM (libvirt + AWS).
+
+libvirt_client:
+  hostname: "bench-client"
+  mac: "52:54:00:ab:cd:01"
+  vcpu: 2
+  memory_mib: 4096
+  disk_size_gib: 10
+
+aws_client:
+  hostname: "bench-client"
+  instance_type: c7i.large
+  volume:
+    size_gib: 30

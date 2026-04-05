@@ -1,8 +1,10 @@
 ---
 # Pin for reproducible installs (ansible-galaxy collection install -r requirements.yml).
-# Last resolved: cloud.terraform 4.0.0, community.crypto 2.26.7
+# Last resolved: cloud.terraform 4.0.0, community.crypto 2.26.7, community.general 9.5.0
 collections:
   - name: cloud.terraform
     version: "4.0.0"
   - name: community.crypto
     version: "2.26.7"
+  - name: community.general
+    version: "9.5.0"

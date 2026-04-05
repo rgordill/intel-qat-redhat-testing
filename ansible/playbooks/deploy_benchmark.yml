@@ -3,18 +3,42 @@
 - name: Configure benchmark server
   hosts: server
   gather_facts: true
+  # Load vault on a real host (not delegate_to localhost) so vault_rhel_* apply to this play.
+  pre_tasks:
+    - name: Load optional vault (vault_rhel_* and other secrets)
+      ansible.builtin.include_vars:
+        file: "{{ playbook_dir }}/../group_vars/vault.yml"
+      ignore_errors: true
+      run_once: true
   vars_files:
     - ../group_vars/all.yml
+    - ../group_vars/client.yml
+    - ../group_vars/server.yml
   roles:
+    - role: rhel_subscription
+    - role: bind_server
+      when: provider | default('libvirt') == 'libvirt'
     - role: certs
-    - role: nginx_benchmark
+    - role: nginx_server_backend
     - role: qat_prereqs
-      when: qatbench_enable_qat | bool
-    - role: haproxy_benchmark
+      when: enable_qat | bool
+    - role: haproxy_server
 
 - name: Configure load client
   hosts: client
+  gather_facts: true
+  pre_tasks:
+    - name: Load optional vault (vault_rhel_* and other secrets)
+      ansible.builtin.include_vars:
+        file: "{{ playbook_dir }}/../group_vars/vault.yml"
+      ignore_errors: true
+      run_once: true
   vars_files:
     - ../group_vars/all.yml
+    - ../group_vars/client.yml
+    - ../group_vars/server.yml
   roles:
+    - role: rhel_subscription
+    - role: bind_client_resolver
+      when: provider | default('libvirt') == 'libvirt'
     - role: loadtest_client

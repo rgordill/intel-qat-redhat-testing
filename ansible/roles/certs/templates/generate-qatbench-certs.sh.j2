@@ -1,0 +1,58 @@
+#!/bin/bash
+# {{ ansible_managed }}
+set -euo pipefail
+cd "{{ certs_role_dir }}"
+
+# --- Root CA (self-signed) ---
+if [[ ! -f ca.crt ]]; then
+  openssl genrsa -out ca.key 4096
+  openssl req -new -x509 -key ca.key -sha256 -days 3650 -out ca.crt \
+    -subj "/CN={{ certs_role_ca_cn }}"
+  chmod 0600 ca.key
+  chmod 0644 ca.crt
+fi
+
+# --- Nginx leaf (CN=nginx; SAN includes nginx-passthrough.apps.<domain>) ---
+if [[ ! -f nginx.crt ]]; then
+  openssl genrsa -out nginx.key 4096
+  openssl req -new -key nginx.key -out nginx.csr -config openssl-nginx.cnf
+  if [[ ! -f ca.srl ]]; then
+    openssl x509 -req -in nginx.csr -CA ca.crt -CAkey ca.key -CAcreateserial \
+      -out nginx.crt -days 3650 -extensions v3_req -extfile openssl-nginx.cnf
+  else
+    openssl x509 -req -in nginx.csr -CA ca.crt -CAkey ca.key -CAserial ca.srl \
+      -out nginx.crt -days 3650 -extensions v3_req -extfile openssl-nginx.cnf
+  fi
+  chmod 0600 nginx.key
+  chmod 0644 nginx.crt
+  rm -f nginx.csr
+fi
+
+# --- HAProxy edge: wildcard *.apps.<domain> ---
+if [[ ! -f haproxy-wildcard.crt ]]; then
+  openssl genrsa -out haproxy-wildcard.key 4096
+  openssl req -new -key haproxy-wildcard.key -out haproxy-wildcard.csr -config openssl-haproxy-wildcard.cnf
+  if [[ ! -f ca.srl ]]; then
+    openssl x509 -req -in haproxy-wildcard.csr -CA ca.crt -CAkey ca.key -CAcreateserial \
+      -out haproxy-wildcard.crt -days 3650 -extensions v3_req -extfile openssl-haproxy-wildcard.cnf
+  else
+    openssl x509 -req -in haproxy-wildcard.csr -CA ca.crt -CAkey ca.key -CAserial ca.srl \
+      -out haproxy-wildcard.crt -days 3650 -extensions v3_req -extfile openssl-haproxy-wildcard.cnf
+  fi
+  chmod 0600 haproxy-wildcard.key
+  chmod 0644 haproxy-wildcard.crt
+  rm -f haproxy-wildcard.csr
+fi
+
+# PEM bundle for HAProxy default listener (leaf + key + CA chain)
+if [[ -f haproxy-wildcard.crt && -f haproxy-wildcard.key && -f ca.crt ]]; then
+  tmp=$(mktemp)
+  cat haproxy-wildcard.crt haproxy-wildcard.key ca.crt > "$tmp"
+  chmod 0600 "$tmp"
+  if [[ ! -f haproxy.pem ]] || ! cmp -s "$tmp" haproxy.pem; then
+    mv -f "$tmp" haproxy.pem
+    chmod 0600 haproxy.pem
+  else
+    rm -f "$tmp"
+  fi
+fi

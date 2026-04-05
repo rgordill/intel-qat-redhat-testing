@@ -1,0 +1,3 @@
+{# This file maps the urls to the backend services if the route is http #}
+{% set haproxy_domain_regex = haproxy_domain | replace('.', '\\.') %}
+^nginx-http\.apps\.{{ haproxy_domain_regex }}\.?(:[0-9]+)?(/.*)?$ be_http:test:nginx-http

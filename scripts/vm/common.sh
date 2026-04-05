@@ -3,6 +3,9 @@
 QAT_BENCH_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 export QAT_BENCH_ROOT
 UTIL_DIR="${QAT_BENCH_ROOT}/scripts/utils"
+# Override with auto-generated inventory (e.g. libvirt-provision-and-deploy.sh → hosts.auto.yml)
+QAT_BENCH_INVENTORY="${QAT_BENCH_INVENTORY:-inventory/hosts.yml}"
+export QAT_BENCH_INVENTORY
 
 scenario_lower() {
   echo "$1" | tr '[:upper:]' '[:lower:]'
@@ -13,6 +16,7 @@ valid_scenario() {
 }
 
 # HAProxy listens: (a) port 80; (b–e) port 443 TLS.
+# Host may be IP or name (e.g. bench-server.atik.demo when /etc/hosts or DNS is set on the runner).
 bench_url_for_vm() {
   local sc srv
   sc=$(scenario_lower "$1")

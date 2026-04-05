@@ -1,0 +1,7 @@
+---
+# Path to certs on the benchmark server (must match certs role / group_vars cert_dir).
+qatbench_server_cert_dir: "{{ cert_dir | default('/etc/pki/qat-bench') }}"
+
+# wrk RPM source: Copr getpagespeed/wrk (tasks install the .repo under /etc/yum.repos.d).
+# Override only if you mirror Copr internally:
+# loadtest_client_copr_repo_url: "https://..."

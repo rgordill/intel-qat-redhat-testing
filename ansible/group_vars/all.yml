@@ -1,14 +1,45 @@
 ---
-# SSH public key for Terraform (read on the Ansible controller). See .cursor/rules/vm.mdc
-ssh_key_file: "~/.ssh/id_rsa.pub"
-ssh_public_key: "{{ lookup('file', ssh_key_file | expanduser) }}"
+# Where infrastructure runs: libvirt | aws (terraform role; inventory can override).
+provider: libvirt
+
+# Shared libvirt settings (per-VM: group_vars/client.yml / server.yml → libvirt_client / libvirt_server).
+libvirt:
+  uri: "qemu:///system"
+  network:
+    cidr: "192.168.152.0/24"
+    name: "qatbench"
+    domain: "atik.demo"
+  storage:
+    pool_name: "default"
+    base_volume_path: "/var/lib/libvirt/images/rhel-9.6-x86_64-kvm.qcow2"
+  ssh:
+    user: "cloud-user"
+    key_file: "~/.ssh/id_rsa.pub"
+
+# Shared AWS settings (per-VM in client.yml / server.yml → aws_client / aws_server).
+aws:
+  network:
+    cidr: "10.47.0.0/16"
+    subnet_cidr: "10.47.1.0/24"
+    domain: "instance.opentlc.com"
+  region: eu-east-2
+  ami_id: ""
+
+domain: "{{ libvirt.network.domain if provider == 'libvirt' else aws.network.domain }}"
+
+# Common Terraform resource prefix (libvirt + aws stacks)
+project_name: qatbench
+
+# RHEL: register guests before dnf (libvirt / AWS RHEL). See .cursor/rules/rhel.mdc and vault.yml.template.
+rhel_subscription_enabled: true
 
 # HAProxy scenario: a | b | c | d | e (see docs/ROUTER_ENV_MAPPING.md)
 haproxy_scenario: "a"
+haproxy_service: haproxy
 
-# Software TLS only (libvirt + c7i.large); set true on c7i.metal-24xl after QAT validation
-qatbench_enable_qat: false
+enable_qat: false
+cert_dir: /etc/pki/qat-bench
 
-# Paths on server (role defaults)
-qatbench_cert_dir: /etc/pki/qat-bench
-qatbench_haproxy_service: haproxy
+# BIND (bind_server + bind_client_resolver): libvirt only. AWS uses Route53 private zone — terraform/aws/network.tf.
+bind_server_enabled: true
+bind_client_use_server_dns: true

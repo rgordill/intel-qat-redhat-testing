@@ -1,3 +1,3 @@
 provider "aws" {
-  region = var.aws_region
+  region = var.qatbench_aws_region
 }

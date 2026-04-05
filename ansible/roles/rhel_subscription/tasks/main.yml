@@ -1,0 +1,20 @@
+---
+# Use vault_rhel_* directly (not rhel_org_id from group_vars): all.yml is merged before vault include_vars,
+# so templated rhel_org_id can stay empty. vault.yml is loaded in playbook pre_tasks before roles.
+- name: Register system with Red Hat Subscription Management (activation key)
+  community.general.redhat_subscription:
+    org_id: "{{ vault_rhel_org_id }}"
+    activationkey: "{{ vault_rhel_activation_key }}"
+    state: present
+  register: rhel_sub_register
+  notify: Refresh dnf cache after RHEL registration
+  when:
+    - rhel_subscription_enabled | bool
+    # RHEL: ansible_distribution is "RedHat" (see ansible setup), not the full release string.
+    - ansible_distribution in ['RedHat', 'Red Hat Enterprise Linux']
+    - (vault_rhel_org_id | default('')) | length > 0
+    - (vault_rhel_activation_key | default('')) | length > 0
+
+# Handlers run at end of play by default; flush now so dnf cache is fresh for later roles in the same play.
+- name: Flush handlers so dnf cache refreshes before subsequent roles
+  ansible.builtin.meta: flush_handlers

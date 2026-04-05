@@ -1,0 +1,9 @@
+---
+galaxy_info:
+  role_name: bind_server
+  description: Install BIND on the benchmark server and publish client, server, and *.apps zone records for HAProxy
+  platforms:
+    - name: EL
+      versions:
+        - "9"
+dependencies: []

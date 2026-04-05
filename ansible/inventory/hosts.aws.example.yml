@@ -1,0 +1,22 @@
+---
+# EC2 example. Prefer generating from state (same as provision script):
+#   ./scripts/terraform/render-ansible-inventory.sh aws
+# → ansible/inventory/hosts.aws.auto.yml (gitignored). Or: terraform output -raw ansible_inventory_yaml
+all:
+  vars:
+    provider: aws
+    qatbench_vm_domain: "aws-bench.demo"
+    qatbench_aws_domain: "aws-bench.demo"
+    qatbench_aws_client_fqdn: "bench-client.aws-bench.demo"
+    qatbench_aws_server_fqdn: "bench-server.aws-bench.demo"
+  children:
+    client:
+      hosts:
+        bench-client:
+          ansible_host: CHANGE_ME_CLIENT_PUBLIC_IP
+          ansible_user: ec2-user
+    server:
+      hosts:
+        bench-server:
+          ansible_host: CHANGE_ME_SERVER_PUBLIC_IP
+          ansible_user: ec2-user

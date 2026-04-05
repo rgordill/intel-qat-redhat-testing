@@ -1,0 +1,16 @@
+---
+# Usage:
+#   ansible-playbook playbooks/terraform.yml
+#   ansible-playbook playbooks/terraform.yml -e provider=aws
+# Requires: group_vars/all.yml + client.yml + server.yml
+- name: Provision infrastructure (Terraform)
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  become: false
+  vars_files:
+    - ../group_vars/all.yml
+    - ../group_vars/client.yml
+    - ../group_vars/server.yml
+  roles:
+    - role: terraform

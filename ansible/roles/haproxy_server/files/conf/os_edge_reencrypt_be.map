@@ -1,0 +1,1 @@
+^nginx-reencrypt\.apps\.ocp\.sa-iberia\.lab\.eng\.brq2\.redhat\.com\.?(:[0-9]+)?(/.*)?$ be_secure:test:nginx-reencrypt

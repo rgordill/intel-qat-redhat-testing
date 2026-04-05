@@ -1,6 +1,8 @@
 ---
-# Optional: only if you add non-SSH secrets — copy to vault.yml and ansible-vault encrypt.
-# SSH public key is not stored here; use ssh_key_file in group_vars/all.yml.
+# Copy to ansible/group_vars/vault.yml and encrypt: ansible-vault encrypt ansible/group_vars/vault.yml
+# vault.yml is gitignored. SSH public key path is libvirt.ssh.key_file in group_vars/all.yml, not here.
 #
-# Example:
-# vault_subscription_password: "…"
+# Red Hat subscription (activation key) — required on RHEL guests when rhel_subscription_enabled: true in all.yml
+# Obtain org ID and activation key from the Red Hat Customer Portal / Subscription Management.
+# vault_rhel_org_id: "12345678"
+# vault_rhel_activation_key: "your-activation-key-name"

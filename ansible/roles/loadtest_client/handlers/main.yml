@@ -1,0 +1,5 @@
+---
+- name: Refresh system CA trust
+  ansible.builtin.command:
+    cmd: update-ca-trust extract
+  changed_when: true

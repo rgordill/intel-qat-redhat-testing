@@ -1,0 +1,27 @@
+// {{ ansible_managed }}
+
+options {
+	listen-on port 53 { any; };
+	listen-on-v6 port 53 { any; };
+	directory "/var/named";
+	dump-file "/var/named/data/cache_dump.db";
+	statistics-file "/var/named/data/named_stats.txt";
+	memstatistics-file "/var/named/data/named_mem_stats.txt";
+	secroots-file "/var/named/data/named.secroots";
+	recursing-file "/var/named/data/named.recursing";
+	pid-file "/run/named/named.pid";
+
+	allow-query { {% for net in bind_allow_query %}{{ net }}; {% endfor %}};
+
+	recursion {% if bind_recursion | bool %}yes{% else %}no{% endif %};
+	allow-recursion { {% if bind_recursion | bool %}{% for net in bind_allow_recursion %}{{ net }}; {% endfor %}{% else %}none; {% endif %}};
+{% if bind_recursion | bool and (bind_forwarders | default([]) | length) > 0 %}
+	forward first;
+	forwarders { {% for ip in bind_forwarders %}{{ ip }}; {% endfor %}};
+{% endif %}
+};
+
+zone "{{ bind_zone_domain }}" IN {
+	type master;
+	file "{{ bind_zone_filename }}";
+};

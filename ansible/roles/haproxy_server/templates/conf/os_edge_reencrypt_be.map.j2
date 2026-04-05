@@ -1,0 +1,4 @@
+{# This file maps the urls to the backend services if the route is edge or reencrypt #}
+{% set haproxy_domain_regex = haproxy_domain | replace('.', '\\.') %}
+^nginx-edge\.apps\.{{ haproxy_domain_regex }}\.?(:[0-9]+)?(/.*)?$ be_edge_http:test:nginx-edge
+^nginx-reencrypt\.apps\.{{ haproxy_domain_regex }}\.?(:[0-9]+)?(/.*)?$ be_secure:test:nginx-reencrypt

@@ -1,0 +1,6 @@
+---
+# Which Terraform stack to apply: libvirt | aws
+qatbench_provider: libvirt
+
+qatbench_libvirt_project_path: "{{ playbook_dir }}/../../terraform/libvirt"
+qatbench_aws_project_path: "{{ playbook_dir }}/../../terraform/aws"

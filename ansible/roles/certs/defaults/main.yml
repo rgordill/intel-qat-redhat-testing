@@ -1,4 +1,11 @@
 ---
-certs_role_dir: "{{ qatbench_cert_dir | default('/etc/pki/qat-bench') }}"
+certs_role_dir: "{{ cert_dir | default('/etc/pki/qat-bench') }}"
+# Root CA subject (PEM: ca.crt / ca.key).
 certs_role_ca_cn: "qat-bench-ca"
-certs_role_server_cn: "qat-bench-server.local"
+
+# Zone apex for OpenShift-style routes (must match BIND / inventory qatbench_vm_domain).
+certs_role_apps_domain: "{{ qatbench_vm_domain | default(domain | default('atik.demo')) }}"
+
+# Nginx TLS: CN and SAN for the loopback HTTPS backend (re-encrypt to HAProxy).
+certs_role_nginx_cn: "nginx"
+certs_role_nginx_passthrough_host: "nginx-passthrough.apps.{{ certs_role_apps_domain }}"

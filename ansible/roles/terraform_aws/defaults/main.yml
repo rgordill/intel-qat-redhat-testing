@@ -1,2 +1,0 @@
----
-terraform_aws_project_path: "{{ playbook_dir }}/../../terraform/aws"

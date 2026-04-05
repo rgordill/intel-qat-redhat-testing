@@ -1,30 +1,53 @@
 ---
-- name: Install wrk build dependencies
+# Trust the benchmark root CA (from server) so curl/wrk/openssl verify HTTPS to *.apps.<domain>.
+- name: Read benchmark root CA from server
+  ansible.builtin.slurp:
+    src: "{{ qatbench_server_cert_dir }}/ca.crt"
+  delegate_to: "{{ groups['server'][0] }}"
+  become: true
+  register: qatbench_ca_b64
+
+- name: Install benchmark CA for system trust (update-ca-trust)
+  ansible.builtin.copy:
+    dest: /etc/pki/ca-trust/source/anchors/qatbench-ca.crt
+    content: "{{ qatbench_ca_b64.content | b64decode }}"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Refresh system CA trust
+
+- name: Run update-ca-trust before remaining client setup
+  ansible.builtin.meta: flush_handlers
+
+# wrk Copr RPM needs libluajit-5.1.so.2; EPEL ships luajit for EL9 (not in BaseOS/AppStream).
+- name: Install EPEL release (luajit for wrk)
   ansible.builtin.dnf:
-    name:
-      - git
-      - gcc
-      - make
-      - openssl-devel
+    name: "https://dl.fedoraproject.org/pub/epel/epel-release-latest-{{ ansible_distribution_major_version }}.noarch.rpm"
     state: present
+    disable_gpg_check: true
+  when: ansible_distribution == 'RedHat'
 
-- name: Clone wrk
-  ansible.builtin.git:
-    repo: https://github.com/wg/wrk.git
-    dest: /opt/wrk
-    version: "4.2.0"
+- name: Install luajit (runtime for wrk RPM)
+  ansible.builtin.dnf:
+    name: luajit
+    state: present
+    enablerepo: epel
+  when: ansible_distribution == 'RedHat'
 
-- name: Build wrk
-  ansible.builtin.command:
-    cmd: make
-    chdir: /opt/wrk
-    creates: /opt/wrk/wrk
-  register: wrk_make
-  changed_when: wrk_make.rc == 0
+# wrk: install prebuilt RPM from Copr (getpagespeed/wrk). Base EPEL does not ship wrk for EL9.
+# See https://copr.fedorainfracloud.org/coprs/getpagespeed/wrk/
+- name: Install getpagespeed wrk Copr repository file
+  ansible.builtin.get_url:
+    url: >-
+      {{ 'https://copr.fedorainfracloud.org/coprs/getpagespeed/wrk/repo/epel-'
+      ~ ansible_distribution_major_version ~ '/getpagespeed-wrk-epel-'
+      ~ ansible_distribution_major_version ~ '.repo' }}
+    dest: "/etc/yum.repos.d/copr-getpagespeed-wrk-epel-{{ ansible_distribution_major_version }}.repo"
+    mode: "0644"
+  when: ansible_distribution == 'RedHat'
 
-- name: Symlink wrk into PATH
-  ansible.builtin.file:
-    src: /opt/wrk/wrk
-    dest: /usr/local/bin/wrk
-    state: link
-    force: true
+- name: Install wrk RPM
+  ansible.builtin.dnf:
+    name: wrk
+    state: present
+    update_cache: true

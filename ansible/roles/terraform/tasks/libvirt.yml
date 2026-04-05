@@ -1,0 +1,29 @@
+---
+- name: Apply Terraform (libvirt)
+  cloud.terraform.terraform:
+    project_path: "{{ qatbench_libvirt_project_path }}"
+    state: present
+    force_init: true
+    variables:
+      qatbench_ssh_key_file: "{{ libvirt.ssh.key_file | expanduser }}"
+      qatbench_domain: "{{ libvirt.network.domain }}"
+      qatbench_project_name: "{{ project_name }}"
+      qatbench_libvirt_uri: "{{ libvirt.uri | default('qemu:///system') }}"
+      qatbench_libvirt_pool_name: "{{ libvirt.storage.pool_name }}"
+      qatbench_libvirt_base_volume_path: "{{ libvirt.storage.base_volume_path }}"
+      qatbench_libvirt_ssh_user: "{{ libvirt.ssh.user }}"
+      qatbench_libvirt_disk_size_gib: "{{ libvirt_client.disk_size_gib | default(libvirt_server.disk_size_gib) }}"
+      qatbench_libvirt_network_cidr: "{{ libvirt.network.cidr }}"
+      qatbench_client_hostname: "{{ libvirt_client.hostname }}"
+      qatbench_libvirt_client_mac: "{{ libvirt_client.mac }}"
+      qatbench_libvirt_client_vcpu: "{{ libvirt_client.vcpu }}"
+      qatbench_libvirt_client_memory_mib: "{{ libvirt_client.memory_mib }}"
+      qatbench_server_hostname: "{{ libvirt_server.hostname }}"
+      qatbench_libvirt_server_mac: "{{ libvirt_server.mac }}"
+      qatbench_libvirt_server_vcpu: "{{ libvirt_server.vcpu }}"
+      qatbench_libvirt_server_memory_mib: "{{ libvirt_server.memory_mib }}"
+
+- name: Read Terraform outputs (libvirt)
+  cloud.terraform.terraform_output:
+    project_path: "{{ qatbench_libvirt_project_path }}"
+  register: tf_out

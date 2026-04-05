@@ -1,0 +1,40 @@
+---
+# Authoritative DNS on the benchmark server (BIND). Zone matches qatbench / libvirt / AWS domain.
+bind_server_enabled: true
+
+bind_packages:
+  - bind
+  - bind-utils
+
+bind_service: named
+
+# Zone apex (e.g. atik.demo). Inventory often sets qatbench_vm_domain in all.vars (second true: also when empty).
+bind_zone_domain: "{{ qatbench_vm_domain | default(aws.network.domain if (provider | default('libvirt')) == 'aws' else libvirt.network.domain, true) }}"
+
+# Short names for A records (must match libvirt_*/aws_* hostnames and inventory).
+bind_client_hostname: "{{ libvirt_client.hostname | default('bench-client') }}"
+bind_server_hostname: "{{ libvirt_server.hostname | default('bench-server') }}"
+
+# HAProxy runs on the server VM — *.apps.<domain> points here.
+bind_haproxy_ip: "{{ hostvars[groups['server'][0]]['ansible_host'] }}"
+bind_client_ip: "{{ hostvars[groups['client'][0]]['ansible_host'] }}"
+bind_server_ip: "{{ hostvars[groups['server'][0]]['ansible_host'] }}"
+
+bind_zone_filename: "db.{{ bind_zone_domain | replace('.', '-') }}"
+
+# Allow queries from these prefixes (lab-friendly defaults).
+bind_allow_query:
+  - 127.0.0.0/8
+  - ::1
+  - 10.0.0.0/8
+  - 172.16.0.0/12
+  - 192.168.0.0/16
+
+bind_manage_firewalld: true
+
+# Recursion + forwarders so hosts can use BIND as their only resolver (authoritative + cached public DNS).
+bind_recursion: true
+bind_forwarders:
+  - 8.8.8.8
+  - 1.1.1.1
+bind_allow_recursion: "{{ bind_allow_query }}"

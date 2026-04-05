@@ -1,7 +1,3 @@
-# ssh_key_file = "~/.ssh/id_ed25519.pub"
-aws_region       = "eu-west-1"
-client_instance_type = "c7i.large"
-server_instance_type = "c7i.large"
-# For metal + QAT after smoke:
-# server_instance_type = "c7i.metal-24xl"
-# ami_id = "ami-xxxxxxxx"   # set if the default RHEL filter does not resolve
+# qatbench_ssh_key_file = "~/.ssh/id_ed25519.pub"
+# qatbench_aws_region = "eu-west-1"
+# qatbench_domain = "aws-bench.demo" # Route53 private zone + A records — see network.tf

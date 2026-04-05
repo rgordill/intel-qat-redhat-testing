@@ -1,0 +1,11 @@
+#cloud-config
+users:
+  - name: ${libvirt_ssh_user}
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    groups: wheel
+    shell: /bin/bash
+    ssh_authorized_keys:
+      - ${ssh_public_key}
+hostname: ${bench_server_hostname}
+fqdn: ${bench_server_hostname}.${bench_domain}
+manage_etc_hosts: true

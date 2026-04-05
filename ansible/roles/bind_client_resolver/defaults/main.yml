@@ -1,0 +1,7 @@
+---
+# Point the benchmark client at BIND on the server (same zone as bind_server role).
+bind_client_use_server_dns: true
+
+bind_zone_domain: "{{ qatbench_vm_domain | default(aws.network.domain if (provider | default('libvirt')) == 'aws' else libvirt.network.domain, true) }}"
+
+bind_resolver_server_ip: "{{ hostvars[groups['server'][0]]['ansible_host'] }}"

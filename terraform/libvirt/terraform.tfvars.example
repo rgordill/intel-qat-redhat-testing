@@ -1,4 +1,9 @@
-# Copy to terraform.tfvars (not committed). Key is read from file (default ~/.ssh/id_rsa.pub).
-# ssh_key_file    = "~/.ssh/id_rsa.pub"
-# libvirt_ssh_user = "cloud-user"
-# base_image_path = "/var/lib/libvirt/images/rhel-9.6-x86_64-kvm.qcow2"
+# Copy to terraform.tfvars (not committed). Keys match variable names in variables.tf (qatbench_*).
+# qatbench_ssh_key_file    = "~/.ssh/id_rsa.pub"
+# qatbench_libvirt_ssh_user = "cloud-user"
+# qatbench_libvirt_base_volume_path = "/var/lib/libvirt/images/rhel-9.6-x86_64-kvm.qcow2"
+#
+# Benchmark NAT network (match ansible group_vars qatbench_libvirt_*).
+# qatbench_libvirt_network_cidr = "192.168.152.0/24"
+# qatbench_libvirt_server_mac   = "52:54:00:ab:cd:02"
+# qatbench_libvirt_client_mac   = "52:54:00:ab:cd:01"

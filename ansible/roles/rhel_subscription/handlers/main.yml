@@ -1,0 +1,4 @@
+---
+- name: Refresh dnf cache after RHEL registration
+  ansible.builtin.dnf:
+    update_cache: true

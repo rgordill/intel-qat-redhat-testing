@@ -1,0 +1,4 @@
+{# This file maps the urls to the backend services if the route termination type is passthrough or reencrypt #}
+{% set haproxy_domain_regex = haproxy_domain | replace('.', '\\.') %}
+^nginx-passthrough\.apps\.{{ haproxy_domain_regex }}\.?(:[0-9]+)?(/.*)?$ be_tcp:test:nginx-passthrough
+^nginx-reencrypt\.apps\.{{ haproxy_domain_regex }}\.?(:[0-9]+)?(/.*)?$ be_secure:test:nginx-reencrypt

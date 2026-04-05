@@ -1,0 +1,22 @@
+---
+- name: Resolve infrastructure provider (group_vars `provider` or legacy `qatbench_provider`)
+  ansible.builtin.set_fact:
+    terraform_target: "{{ provider | default(qatbench_provider | default('libvirt')) }}"
+
+- name: Validate benchmark provider
+  ansible.builtin.assert:
+    that:
+      - terraform_target in ['libvirt', 'aws']
+    fail_msg: "provider must be 'libvirt' or 'aws', got {{ terraform_target }}"
+
+- name: Run Terraform stack (libvirt)
+  ansible.builtin.include_tasks: libvirt.yml
+  when: terraform_target == 'libvirt'
+
+- name: Run Terraform stack (AWS)
+  ansible.builtin.include_tasks: aws.yml
+  when: terraform_target == 'aws'
+
+- name: Show Terraform outputs
+  ansible.builtin.debug:
+    var: tf_out.outputs

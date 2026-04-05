@@ -1,0 +1,25 @@
+---
+- name: Apply Terraform (AWS)
+  cloud.terraform.terraform:
+    project_path: "{{ qatbench_aws_project_path }}"
+    state: present
+    force_init: true
+    variables:
+      qatbench_ssh_key_file: "{{ libvirt.ssh.key_file | expanduser }}"
+      qatbench_domain: "{{ aws.network.domain }}"
+      qatbench_project_name: "{{ project_name }}"
+      qatbench_aws_region: "{{ aws.region }}"
+      qatbench_aws_vpc_cidr: "{{ aws.vpc.cidr }}"
+      qatbench_aws_public_subnet_cidr: "{{ aws.vpc.subnet_cidr | default(aws.vpc.public_subnet_cidr) }}"
+      qatbench_aws_ami_id: "{{ aws.ami_id }}"
+      qatbench_aws_client_instance_type: "{{ aws_client.instance_type }}"
+      qatbench_aws_server_instance_type: "{{ aws_server.instance_type }}"
+      qatbench_aws_root_volume_size_gib: >-
+        {{ [aws_client.volume.size_gib | int, aws_server.volume.size_gib | int] | max }}
+      qatbench_client_hostname: "{{ aws_client.hostname }}"
+      qatbench_server_hostname: "{{ aws_server.hostname }}"
+
+- name: Read Terraform outputs (AWS)
+  cloud.terraform.terraform_output:
+    project_path: "{{ qatbench_aws_project_path }}"
+  register: tf_out

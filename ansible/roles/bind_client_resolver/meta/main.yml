@@ -1,0 +1,4 @@
+---
+galaxy_info:
+  role_name: bind_client_resolver
+  description: Set client DNS to the benchmark BIND server (NetworkManager)

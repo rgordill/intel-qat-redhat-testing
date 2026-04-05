@@ -1,4 +1,13 @@
 ---
+# openssl(1) only — no python-cryptography. Produces:
+# - ca.crt / ca.key — benchmark root CA
+# - nginx.key / nginx.crt — CN=nginx, SAN nginx-passthrough.apps.<domain> (+ localhost / 127.0.0.1)
+# - haproxy-wildcard.* + haproxy.pem — SAN *.apps.<domain> for HAProxy edge (crt-list default.pem)
+- name: Ensure openssl is present
+  ansible.builtin.package:
+    name: openssl
+    state: present
+
 - name: Ensure certificate directory exists
   ansible.builtin.file:
     path: "{{ certs_role_dir }}"
@@ -7,55 +16,39 @@
     group: root
     mode: "0755"
 
-- name: Generate CA private key
-  community.crypto.openssl_privatekey:
-    path: "{{ certs_role_dir }}/ca.key"
-    mode: "0600"
-
-- name: Generate CA certificate
-  community.crypto.x509_certificate: # noqa: args[module]
-    path: "{{ certs_role_dir }}/ca.crt"
-    privatekey_path: "{{ certs_role_dir }}/ca.key"
-    provider: selfsigned
-    selfsigned_not_after: "+3650d"
-    selfsigned_create_subject_key_identifier: never_create
-    subject:
-      commonName: "{{ certs_role_ca_cn }}"
+- name: Deploy OpenSSL configs for nginx and HAProxy leaf certificates
+  ansible.builtin.template:
+    src: "{{ item.src }}"
+    dest: "{{ certs_role_dir }}/{{ item.dest }}"
+    owner: root
+    group: root
     mode: "0644"
+  loop:
+    - { src: openssl-nginx.cnf.j2, dest: openssl-nginx.cnf }
+    - { src: openssl-haproxy-wildcard.cnf.j2, dest: openssl-haproxy-wildcard.cnf }
 
-- name: Generate server private key
-  community.crypto.openssl_privatekey:
-    path: "{{ certs_role_dir }}/server.key"
-    mode: "0600"
+- name: Deploy certificate generation script
+  ansible.builtin.template:
+    src: generate-qatbench-certs.sh.j2
+    dest: "{{ certs_role_dir }}/generate-qatbench-certs.sh"
+    owner: root
+    group: root
+    mode: "0700"
 
-- name: Generate server CSR
-  community.crypto.openssl_csr:
-    path: "{{ certs_role_dir }}/server.csr"
-    privatekey_path: "{{ certs_role_dir }}/server.key"
-    common_name: "{{ certs_role_server_cn }}"
-    subject_alt_name:
-      - "DNS:{{ certs_role_server_cn }}"
-      - "DNS:localhost"
-      - "IP:127.0.0.1"
+- name: Generate CA, nginx cert, and HAProxy wildcard PEM
+  ansible.builtin.command:
+    cmd: "{{ certs_role_dir }}/generate-qatbench-certs.sh"
+  changed_when: false
 
-- name: Sign server certificate with CA
-  community.crypto.x509_certificate: # noqa: args[module]
-    path: "{{ certs_role_dir }}/server.crt"
-    csr_path: "{{ certs_role_dir }}/server.csr"
-    provider: ownca
-    ownca_path: "{{ certs_role_dir }}/ca.crt"
-    ownca_privatekey_path: "{{ certs_role_dir }}/ca.key"
-    ownca_not_after: "+3650d"
-    mode: "0644"
-
-- name: Build HAProxy PEM (cert + key + CA chain)
-  ansible.builtin.shell: |
-    set -euo pipefail
-    cat "{{ certs_role_dir }}/server.crt" "{{ certs_role_dir }}/server.key" "{{ certs_role_dir }}/ca.crt" > "{{ certs_role_dir }}/haproxy.pem"
-    chmod 0600 "{{ certs_role_dir }}/haproxy.pem"
-  args:
-    creates: "{{ certs_role_dir }}/haproxy.pem"
-  changed_when: true
+- name: Remove legacy single server cert filenames (replaced by nginx.crt / haproxy-wildcard.*)
+  ansible.builtin.file:
+    path: "{{ certs_role_dir }}/{{ item }}"
+    state: absent
+  loop:
+    - openssl.cnf
+    - server.key
+    - server.crt
+    - server.csr
 
 - name: HAProxy PEM ownership
   ansible.builtin.file:

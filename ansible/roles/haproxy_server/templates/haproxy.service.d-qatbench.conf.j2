@@ -1,0 +1,5 @@
+# {{ ansible_managed }}
+[Service]
+# Reset inherited ExecStart, then run from /var/lib/haproxy/conf (OpenShift-style paths).
+ExecStart=
+ExecStart=/usr/sbin/haproxy {{ haproxy_systemd_exec_start_opts }} -f {{ haproxy_conf_dir }}/haproxy.config -p {{ haproxy_run_dir }}/haproxy.pid -x {{ haproxy_run_dir }}/haproxy.sock

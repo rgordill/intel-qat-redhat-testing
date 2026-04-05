@@ -1,0 +1,15 @@
+; {{ ansible_managed }}
+$TTL 86400
+$ORIGIN {{ bind_zone_domain }}.
+@	IN	SOA	ns1.{{ bind_zone_domain }}. hostmaster.{{ bind_zone_domain }}. (
+		{{ bind_zone_serial }}	; serial
+		3600			; refresh
+		900			; retry
+		604800			; expire
+		86400 )			; minimum
+
+	IN	NS	ns1.{{ bind_zone_domain }}.
+ns1	IN	A	{{ bind_server_ip }}
+{{ bind_client_hostname }}	IN	A	{{ bind_client_ip }}
+{{ bind_server_hostname }}	IN	A	{{ bind_server_ip }}
+*.apps	IN	A	{{ bind_haproxy_ip }}

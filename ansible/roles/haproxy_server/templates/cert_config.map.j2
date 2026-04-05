@@ -1,0 +1,3 @@
+# {{ ansible_managed }}
+# crt-list: PEM path followed by host patterns (see HAProxy crt-list documentation).
+{{ haproxy_router_certs_dir }}/default.pem *.apps.{{ haproxy_domain }}

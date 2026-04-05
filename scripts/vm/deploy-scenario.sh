@@ -28,5 +28,5 @@ fi
 
 cd "${QAT_BENCH_ROOT}/ansible"
 export ANSIBLE_CONFIG="${QAT_BENCH_ROOT}/ansible/ansible.cfg"
-exec ansible-playbook -i inventory/hosts.yml playbooks/deploy_benchmark.yml \
+exec ansible-playbook -i "${QAT_BENCH_INVENTORY}" playbooks/deploy_benchmark.yml \
   -e "haproxy_scenario=${sc}" "$@"

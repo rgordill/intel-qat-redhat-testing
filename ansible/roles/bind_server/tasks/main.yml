@@ -1,0 +1,83 @@
+---
+- name: Configure BIND (authoritative zone for benchmark hosts)
+  when: bind_server_enabled | bool
+  block:
+    - name: Compute zone serial (YYYYMMDD + 01)
+      ansible.builtin.set_fact:
+        bind_zone_serial: "{{ ansible_date_time.date | regex_replace('-', '') }}01"
+
+    - name: Install BIND
+      ansible.builtin.dnf:
+        name: "{{ bind_packages }}"
+        state: present
+
+    - name: Ensure /var/named/data exists
+      ansible.builtin.file:
+        path: /var/named/data
+        state: directory
+        owner: named
+        group: named
+        mode: "0750"
+
+    - name: Deploy authoritative zone file
+      ansible.builtin.template:
+        src: db.zone.j2
+        dest: "/var/named/{{ bind_zone_filename }}"
+        owner: named
+        group: named
+        mode: "0640"
+      notify: Restart named
+
+    - name: Apply SELinux file context for zone file
+      ansible.builtin.command:
+        cmd: restorecon -F /var/named/{{ bind_zone_filename }}
+      when: ansible_selinux.status | default('disabled') == 'enabled'
+      changed_when: true
+
+    - name: Deploy named.conf
+      ansible.builtin.template:
+        src: named.conf.j2
+        dest: /etc/named.conf
+        owner: root
+        group: named
+        mode: "0640"
+        validate: named-checkconf %s
+      notify: Restart named
+
+    - name: Validate zone file
+      ansible.builtin.command:
+        cmd: named-checkzone {{ bind_zone_domain }} /var/named/{{ bind_zone_filename }}
+      register: bind_named_checkzone
+      changed_when: false
+
+    - name: Show named-checkzone result
+      ansible.builtin.debug:
+        msg: "{{ bind_named_checkzone.stdout_lines }}"
+      when: bind_named_checkzone.stdout_lines | length > 0
+
+    - name: Check if firewalld is active
+      ansible.builtin.command:
+        cmd: systemctl is-active firewalld
+      register: bind_firewalld_active
+      changed_when: false
+      failed_when: false
+
+    - name: Allow DNS through firewalld (permanent)
+      ansible.builtin.command:
+        cmd: firewall-cmd --permanent --add-service=dns
+      when:
+        - bind_manage_firewalld | bool
+        - bind_firewalld_active.rc == 0
+
+    - name: Allow DNS through firewalld (runtime)
+      ansible.builtin.command:
+        cmd: firewall-cmd --add-service=dns
+      when:
+        - bind_manage_firewalld | bool
+        - bind_firewalld_active.rc == 0
+
+    - name: Enable and start named
+      ansible.builtin.systemd:
+        name: "{{ bind_service }}"
+        state: started
+        enabled: true

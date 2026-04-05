@@ -1,0 +1,35 @@
+---
+- name: Use benchmark BIND as client resolver (NetworkManager)
+  when:
+    - bind_client_use_server_dns | bool
+    - bind_server_enabled | default(true) | bool
+  block:
+    - name: Discover active NetworkManager connection for default IPv4 interface
+      ansible.builtin.shell: |
+        set -euo pipefail
+        nmcli -t -f NAME,DEVICE connection show --active | awk -F: -v d='{{ ansible_default_ipv4.interface }}' '$2==d {print $1; exit}'
+      register: bind_nm_conn
+      changed_when: false
+
+    - name: Set DNS and search domain on active connection
+      ansible.builtin.command:
+        cmd: >
+          nmcli connection modify "{{ bind_nm_conn.stdout }}"
+          ipv4.dns "{{ bind_resolver_server_ip }}"
+          ipv4.dns-search "{{ bind_zone_domain }}"
+          ipv4.ignore-auto-dns yes
+      when: bind_nm_conn.stdout | length > 0
+      changed_when: true
+
+    - name: Re-activate connection to apply DNS
+      ansible.builtin.command:
+        cmd: nmcli connection up "{{ bind_nm_conn.stdout }}"
+      when: bind_nm_conn.stdout | length > 0
+      changed_when: true
+
+    - name: Skip NM DNS (no active connection matched)
+      ansible.builtin.debug:
+        msg: >-
+          No active NM connection for {{ ansible_default_ipv4.interface | default('unknown') }};
+          set DNS manually to {{ bind_resolver_server_ip }} for {{ bind_zone_domain }}.
+      when: bind_nm_conn.stdout | length == 0

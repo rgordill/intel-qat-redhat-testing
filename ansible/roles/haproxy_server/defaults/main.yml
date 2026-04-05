@@ -1,0 +1,73 @@
+---
+# Scenario a|b|c|d|e — topology aligned with openshift/router haproxy-config.template (see files/vendor/).
+haproxy_scenario: "a"
+
+# DNS zone for *.apps.<domain> routes (maps use regex; dots escaped in templates via replace).
+haproxy_domain: "{{ qatbench_vm_domain | default(aws.network.domain if (provider | default('libvirt')) == 'aws' else libvirt.network.domain, true) }}"
+
+# Config and runtime paths (systemd ExecStart uses these; matches paths inside files/conf/haproxy.config).
+haproxy_conf_dir: /var/lib/haproxy/conf
+haproxy_run_dir: /var/lib/haproxy/run
+haproxy_router_certs_dir: /var/lib/haproxy/router/certs
+# CA PEM for backend TLS verify (re-encrypt); copied from certs role (ca.crt → nginx.pem).
+haproxy_router_cacerts_dir: /var/lib/haproxy/router/cacerts
+# RHEL HAProxy unit is typically Type=notify; -Ws enables systemd notify + watchdog.
+haproxy_systemd_exec_start_opts: "-Ws"
+
+# gomplate: https://github.com/hairyhenderson/gomplate — CLI for Go text/template (render vendor haproxy-config.template).
+haproxy_gomplate_install: true
+haproxy_gomplate_version: "v5.0.0"
+haproxy_gomplate_install_dir: "/usr/local/bin"
+haproxy_gomplate_binary_name: "gomplate"
+haproxy_gomplate_install_path: "{{ haproxy_gomplate_install_dir }}/{{ haproxy_gomplate_binary_name }}"
+haproxy_gomplate_base_url: "https://github.com/hairyhenderson/gomplate/releases/download"
+haproxy_gomplate_checksums_url: "{{ haproxy_gomplate_base_url }}/{{ haproxy_gomplate_version }}/checksums-{{ haproxy_gomplate_version }}_sha256.txt"
+haproxy_gomplate_checksums_dest: "/var/tmp/gomplate-checksums-{{ haproxy_gomplate_version }}.sha256"
+haproxy_gomplate_force_download: false
+haproxy_gomplate_arch_map:
+  x86_64: amd64
+  aarch64: arm64
+  ppc64le: ppc64le
+  s390x: s390x
+
+certs_role_dir: "/etc/pki/qat-bench"
+
+# Nginx backends on loopback (nginx_server_backend role)
+qatbench_nginx_http_host: "127.0.0.1"
+qatbench_nginx_http_port: 8080
+qatbench_nginx_https_port: 8443
+
+# Router template parity: omit stats listen (equivalent to StatsPort -1 in upstream).
+router_bench_enable_stats_listen: false
+
+# Default ROUTER_* / SSL_* values matching env defaults in haproxy-config.template (Go).
+router_env:
+  ROUTER_IP_V4_V6_MODE: "v4"
+  ROUTER_DISABLE_HTTP2: "false"
+  ROUTER_SET_FORWARDED_HEADERS: "append"
+  ROUTER_MAX_CONNECTIONS: "50000"
+  ROUTER_MAX_REWRITE_SIZE: "8192"
+  ROUTER_BUF_SIZE: "32768"
+  SSL_MIN_VERSION: "TLSv1.2"
+  ROUTER_CIPHERS: "intermediate"
+  ROUTER_SYSLOG_ADDRESS: ""
+  ROUTER_SYSLOG_FORMAT: ""
+  ROUTER_ERRORFILE_503: "/var/lib/haproxy/conf/error-page-503.http"
+  ROUTER_ERRORFILE_404: "/var/lib/haproxy/conf/error-page-404.http"
+  ROUTER_DEFAULT_CONNECT_TIMEOUT: "5s"
+  ROUTER_DEFAULT_CLIENT_TIMEOUT: "30s"
+  ROUTER_CLIENT_FIN_TIMEOUT: "1s"
+  ROUTER_DEFAULT_SERVER_TIMEOUT: "30s"
+  ROUTER_DEFAULT_SERVER_FIN_TIMEOUT: "1s"
+  ROUTER_SLOWLORIS_TIMEOUT: "10s"
+  ROUTER_SLOWLORIS_HTTP_KEEPALIVE: "300s"
+  ROUTER_DEFAULT_TUNNEL_TIMEOUT: "1h"
+  ROUTER_ENABLE_COMPRESSION: "false"
+  ROUTER_DONT_LOG_NULL: "false"
+  ROUTER_HTTP_IGNORE_PROBES: "false"
+  ROUTER_HAPROXY_CONTSTATS: "false"
+  ROUTER_ABORT_ON_CLOSE: "false"
+  ROUTER_SERVICE_HTTP_PORT: "80"
+  ROUTER_SERVICE_HTTPS_PORT: "443"
+  ROUTER_INSPECT_DELAY: "5s"
+  ROUTER_IDLE_CLOSE_ON_RESPONSE: "false"
