@@ -8,11 +8,15 @@ Implements the staged plan: **libvirt (laptop)** → **AWS c7i.large** → **AWS
 |------|---------|
 | `terraform/libvirt/` | KVM guests (2 vCPU / 4 GiB / 10 GiB, RHEL 9.6 qcow2 base) |
 | `terraform/aws/` | VPC + two instances (types via variables) |
-| `ansible/` | Roles: certs, nginx, `haproxy_server`, optional QAT prereqs, load client, `terraform` (libvirt or AWS via `qatbench_provider`) |
+| `ansible/` | Roles: certs, nginx, `haproxy_server`, optional QAT prereqs, load client, `terraform` (libvirt or AWS via `provider` in `group_vars` / `-e provider=`) |
 | `docs/` | `ROUTER_ENV_MAPPING.md`, `PHASE2_ROUTER_EXTRACTION.md`, gate log template |
 | `scripts/utils/` | `wrk-cps-smoke.sh`, `gates.sh`, `render-haproxy-env.sh`, `wrk-latency-report.lua` |
-| `scripts/vm/` | `deploy-scenario.sh`, `run-scenario-tests.sh`, `deploy-and-test-all.sh` (Ansible `haproxy_scenario` a–e) |
+| `scripts/vm/` | **`provision-infrastructure.sh`** *libvirt* or *aws* (Terraform + inventory), **`run-scenarios.sh`** (CSV-driven deploy + client smoke tests over SSH; **`--list`** prints the table), plus `deploy-scenario.sh`, thin wrappers `deploy-and-test-all.sh` / `libvirt-provision-and-deploy.sh` |
+| `scripts/vm/scenarios.csv` | Per-row **id** (unique), topology, **target_url**, **wrk_run** / **wrk_threads** / **wrk_connections** / **wrk_duration_sec** |
+| `scripts/vm/scenarios.md` | Markdown table generated from the CSV — run **`scripts/vm/render-scenarios-md.sh`** after editing the CSV |
+| `scripts/vm/result.csv` / **`result.md`** | Wrk run results from **`run-scenarios.sh`**; refresh **`result.md`** with **`scripts/vm/render-results-md.sh`** |
 | `scripts/terraform/` | `render-ansible-inventory.sh` — writes `inventory/*.auto.yml` from `terraform output ansible_inventory_yaml` (libvirt or AWS state) |
+| `scripts/vm/inventory_from_ansible.py` | Uses **`ansible-inventory --list`** (same merged vars as playbooks) for server IP / `qatbench_server_fqdn` — used by `run-scenarios.sh` |
 | `scripts/openshift/` | Same for `kubectl` + `kubernetes/` manifests (`INGRESS_HOST` required) |
 | `kubernetes/` | Example nginx + Ingress (HTTP / edge / reencrypt) for OCP |
 
@@ -41,7 +45,7 @@ ansible-playbook playbooks/terraform.yml
 ansible-playbook -i inventory/hosts.auto.yml playbooks/deploy_benchmark.yml
 ```
 
-Switch HAProxy scenario: set `haproxy_scenario: b` (a–e) in `ansible/group_vars/all.yml`, re-run `deploy_benchmark.yml`, or use `scripts/vm/deploy-scenario.sh b` (passes `-e haproxy_scenario=b` via Ansible).
+Re-run the benchmark stack: `ansible-playbook -i inventory/… playbooks/deploy_benchmark.yml` (see `docs/ROUTER_ENV_MAPPING.md`).
 
 ## AWS
 
@@ -54,7 +58,7 @@ terraform apply
 cd ../..
 ./scripts/terraform/render-ansible-inventory.sh aws   # writes ansible/inventory/hosts.aws.auto.yml from state
 cd ansible
-ansible-playbook playbooks/terraform.yml -e qatbench_provider=aws
+ansible-playbook playbooks/terraform.yml -e provider=aws
 ansible-playbook -i inventory/hosts.aws.auto.yml playbooks/deploy_benchmark.yml
 ```
 
@@ -62,7 +66,7 @@ ansible-playbook -i inventory/hosts.aws.auto.yml playbooks/deploy_benchmark.yml
 
 - Use `docs/gate-log-template.md` before promoting stages.
 - CPS smoke: `scripts/utils/wrk-cps-smoke.sh http://SERVER:80/ 5` (install wrk on client via Ansible role).
-- **VM (libvirt/AWS):** `SERVER=<haproxy-ip> ./scripts/vm/deploy-and-test-all.sh` or `./scripts/vm/deploy-scenario.sh c` then `./scripts/vm/run-scenario-tests.sh c --server <ip>`.
+- **VM (libvirt/AWS):** `./scripts/vm/provision-infrastructure.sh libvirt` or `… aws`, then `./scripts/vm/run-scenarios.sh` (or `--list` for the CSV table). Override: `SERVER=<ip> ./scripts/vm/run-scenarios.sh a`. Low-level: `./scripts/vm/deploy-scenario.sh c` (Ansible only).
 
 ## OpenShift
 

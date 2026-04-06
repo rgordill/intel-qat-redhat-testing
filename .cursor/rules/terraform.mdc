@@ -39,7 +39,7 @@ When configuring Terraform through Ansible:
 
 ### VM SSH Key and Users (vm/terraform)
 
-- **SSH public key**: Accept `ssh_public_key` (content from provisioner `~/.ssh/id_rsa.pub`, supplied via Ansible vault). Libvirt injects it via cloud-init; AWS creates an `aws_key_pair` when set.
+- **SSH public key**: Use **`qatbench_ssh_key_file`** on the provisioner (path to `~/.ssh/id_rsa.pub`); Terraform reads it with `file(pathexpand(var.qatbench_ssh_key_file))`. Libvirt injects it via cloud-init; AWS creates an `aws_key_pair` when set.
 - **VM SSH users**: **cloud-user** (libvirt), **ec2-user** (AWS). See `.cursor/rules/vm.mdc` for full convention.
 
 ### Required Collection

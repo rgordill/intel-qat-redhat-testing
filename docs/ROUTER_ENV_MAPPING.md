@@ -55,4 +55,4 @@ Export them in a shell profile or `Environment=` drop-in for `haproxy.service` i
 
 ## Reload
 
-After changing scenario or vars: set `haproxy_scenario` in `ansible/group_vars/all.yml` (or `-e haproxy_scenario=b`) and re-run `playbooks/deploy_benchmark.yml`. The role validates with `haproxy -c -f /var/lib/haproxy/conf/haproxy.config` and restarts the service when files change. For a manual reload after editing files under `/var/lib/haproxy/conf/`, use `systemctl reload haproxy` (or `restart` if you change the systemd drop-in).
+After changing vars or files under `/var/lib/haproxy/conf/`, re-run `playbooks/deploy_benchmark.yml`. The role validates with `haproxy -c -f /var/lib/haproxy/conf/haproxy.config` and restarts the service when files change. For a manual reload after editing files under `/var/lib/haproxy/conf/`, use `systemctl reload haproxy` (or `restart` if you change the systemd drop-in).

@@ -1,7 +1,4 @@
 ---
-# Scenario a|b|c|d|e — topology aligned with openshift/router haproxy-config.template (see files/vendor/).
-haproxy_scenario: "a"
-
 # DNS zone for *.apps.<domain> routes (maps use regex; dots escaped in templates via replace).
 haproxy_domain: "{{ qatbench_vm_domain | default(aws.network.domain if (provider | default('libvirt')) == 'aws' else libvirt.network.domain, true) }}"
 

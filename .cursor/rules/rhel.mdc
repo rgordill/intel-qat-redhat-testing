@@ -1,0 +1,54 @@
+---
+description: RHEL guest VMs — RHSM subscription before dnf; organization ID and activation key
+globs:
+  - ansible/**
+  - scripts/vm/**
+  - terraform/**
+alwaysApply: false
+---
+
+# RHEL guests (libvirt, AWS RHEL AMIs)
+
+When the VM runs **Red Hat Enterprise Linux**, **dnf/yum installs from BaseOS/AppStream require an active subscription** unless the image is pre-entitled (e.g. some cloud SKUs). For **KVM qcow2** lab images and generic RHEL instances, register with **Red Hat Subscription Management** before roles run `dnf`/`package`.
+
+## Subscription method (activation key)
+
+Use **organization ID** and **activation key** (not username/password in playbooks):
+
+- **Organization ID**: numeric or string ID from the [Red Hat Customer Portal](https://access.redhat.com/) (Your organization → **Organization ID**, or Subscription Management).
+- **Activation key**: created under **Hybrid Cloud Console** → **Red Hat Enterprise Linux** → **Activation keys** (or Satellite/RHSM equivalent), with the right subscriptions/repositories attached for RHEL 9 (BaseOS, AppStream, and any extras needed for build tools).
+
+Equivalent CLI:
+
+```bash
+sudo subscription-manager register --org=<ORG_ID> --activationkey=<ACTIVATION_KEY>
+```
+
+## Ansible variables (this repo)
+
+- **`rhel_subscription_enabled`** in `ansible/group_vars/all.yml`: set to **`true`** to run the `rhel_subscription` role on **server** and **client** before `certs`, `nginx_server_backend`, `loadtest_client`, etc.
+- **Secrets** (never commit plaintext):
+  - **`vault_rhel_org_id`** — organization ID for RHSM.
+  - **`vault_rhel_activation_key`** — activation key value.
+- Store them in **`ansible/group_vars/vault.yml`** (copy from `vault.yml.template`), then encrypt: `ansible-vault encrypt ansible/group_vars/vault.yml`.  
+  `vault.yml` is gitignored (`**/vault.yml`).
+- Playbook **`playbooks/deploy_benchmark.yml`** loads optional `vault.yml` in `pre_tasks` (on the target host, not `delegate_to: localhost`) so **`vault_rhel_*`** are in scope before roles. The **`rhel_subscription`** role reads **`vault_rhel_org_id`** / **`vault_rhel_activation_key`** directly — do not duplicate as templated `rhel_org_id` in `all.yml` (group_vars merge order would leave them empty).
+- Override for a single run without a file:  
+  `-e rhel_subscription_enabled=true -e vault_rhel_org_id=... -e vault_rhel_activation_key=...`  
+  (extra vars have high precedence).
+
+## Implementation
+
+- Role: **`ansible/roles/rhel_subscription`** — uses `community.general.redhat_subscription` with `org_id` and `activationkey`, then refreshes dnf metadata when registration changes.
+- Collections: install **`community.general`** per `ansible/requirements.yml` (`ansible-galaxy collection install -r ansible/requirements.yml -p ansible/collections`).
+
+## Cursor / local defaults (placeholders only)
+
+Do **not** put real organization IDs or activation keys in committed files or in this rule. For **local development**, keep secrets in **`ansible/group_vars/vault.yml`** (encrypted) or pass **`-e`** on the command line.
+
+If you need a single place to remember **non-secret** defaults while iterating (e.g. org ID only), you may keep them in a **local, gitignored** note — never the activation key.
+
+## AWS vs libvirt
+
+- **Libvirt / laptop**: RHEL KVM guests are usually **unregistered** until subscription-manager runs; enable **`rhel_subscription_enabled`** for benchmark installs.
+- **AWS RHEL**: Some AMIs are **pre-registered**; if `dnf` already works, you can leave **`rhel_subscription_enabled: false`** and skip the role. If installs fail with repository errors, enable registration the same way.

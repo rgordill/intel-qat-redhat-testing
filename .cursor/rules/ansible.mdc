@@ -80,7 +80,7 @@ Sensitive data includes:
 
 ### VM SSH public key (qat / vm — no Vault)
 
-- **SSH public key** for Terraform/libvirt/AWS is **not** vaulted: set **`ssh_key_file`** in `group_vars/all.yml` (default `~/.ssh/id_rsa.pub`) and derive **`ssh_public_key`** with `lookup('file', ssh_key_file | expanduser)` on the controller. Cloud-init must install that key for **`cloud-user`** on RHEL KVM images; see `.cursor/rules/vm.mdc`.
+- **SSH public key** for Terraform/libvirt/AWS is **not** vaulted: set **`qatbench_ssh_key_file`** in `group_vars/all.yml` (default `~/.ssh/id_rsa.pub`) and derive **`qatbench_ssh_public_key`** with `lookup('file', qatbench_ssh_key_file | expanduser)` on the controller. Cloud-init must install that key for **`cloud-user`** on RHEL KVM images; see `.cursor/rules/vm.mdc`.
 - Use Vault only for truly sensitive values (tokens, private keys, subscription secrets), not for SSH **public** key material.
 
 ### Vault Usage

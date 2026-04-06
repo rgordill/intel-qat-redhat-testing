@@ -91,6 +91,8 @@ Document **pinning** nginx and kernel tunables (`somaxconn`, `ulimit`) identical
 
 **Guest sizing (align with `c7i.large`):** **2 vCPU**, **4 GB RAM**, **10 GB disk** **per VM** (client and server guests). **RHEL 9.6** base image: **`/var/lib/libvirt/images/rhel-9.6-x86_64-kvm.qcow2`** — Terraform libvirt should **clone** (or use backing volume) from this qcow2 so each guest gets its own writable disk; avoid destructive changes to the golden file. Expose the path as a **Terraform variable** with that default for portability.
 
+**RHEL subscription (RHSM):** Unregistered RHEL guests cannot use **dnf** for BaseOS/AppStream packages. Before benchmark installs, register each guest with **subscription-manager** using **organization ID** and **activation key** (Customer Portal / Hybrid Cloud Console). The Ansible role **`rhel_subscription`** runs first on **server** and **client** when **`rhel_subscription_enabled: true`** in `ansible/group_vars/all.yml`; secrets live in encrypted **`ansible/group_vars/vault.yml`** (`vault_rhel_org_id`, `vault_rhel_activation_key`). See **`.cursor/rules/rhel.mdc`**. AWS RHEL AMIs may already be entitled—enable registration only if `dnf` fails.
+
 **Host note:** 10 GB per guest is **minimal**—keep package sets lean (HAProxy, nginx, certs, wrk); document **disk pressure** if DNF or logs fill the volume.
 
 **AWS phase 1 — parity smoke (non-QAT):** Deploy **client** and **server** (HAProxy + nginx) as **`c7i.large`** each. Repeat the **same** non-QAT connectivity and smoke tests as libvirt to confirm cloud networking, AMIs, Ansible, and secrets behave. **No QAT packages required** beyond what is harmless to install disabled.
@@ -111,7 +113,7 @@ Applies whenever Terraform/Ansible runs (libvirt or AWS).
 |---|------|----------------|
 | T1 | Terraform exit state | `terraform apply` completes with no error; outputs include client + server addresses. |
 | T2 | SSH | From provisioner: SSH to **client** and **server** with expected user (**cloud-user** libvirt, **ec2-user** AWS) using the key from **`ssh_key_file`** / Terraform `ssh_key_file`; no host key surprises after first connect. |
-| T3 | Ansible | Playbook completes; optional **second run** reports **no unexpected changes** (idempotency). |
+| T3 | Ansible | Playbook completes; optional **second run** reports **no unexpected changes** (idempotency). On RHEL guests, if **`rhel_subscription_enabled`**, subscription and `dnf` must succeed before package installs. |
 | T4 | Disk space | On each guest: sufficient free space for packages and logs (e.g. `df -h /`); **≥ ~1 GiB** free on 10 GiB libvirt roots before load tests. |
 | T5 | Time (optional) | `chronyd`/`ntpd` active if you compare latencies across hosts (nice-to-have for smoke). |
 
@@ -273,7 +275,7 @@ Record pass/fail in the runbook **before** scenarios **(c)** and **(e)** with QA
 **Ansible:** Roles only; playbooks orchestrate:
 
 - `cloud.terraform.terraform` + `terraform_output` (no Jinja-generated `.tf` files).
-- **Shared roles:** `nginx_benchmark`, `haproxy` (or `haproxy_qat` with **`enable_qat: false`** on libvirt/large), `certs`, `loadtest_client` (wrk/wrk2; optional k6).
+- **Shared roles:** `nginx_server_backend`, `haproxy_server` (QAT toggled via **`qatbench_enable_qat`** on libvirt/large), `certs`, `loadtest_client` (wrk/wrk2; optional k6).
 - **Conditional:** `qat_prereqs` (kernel cmdline when needed, VFIO/QAT drivers, **`/etc/sysconfig/qat`**, **standalone QAT smokes** per Intel/Docker-equivalent commands)—**only when** `inventory` or `host_vars` mark the host as **QAT-enabled** (metal phase).
 - Secrets: SSH **public** key from **`ssh_key_file`** (see [vm.mdc](file:///home/rgordill/PoC/aws/qat/.cursor/rules/vm.mdc)); other sensitive values via Vault per [ansible.mdc](file:///home/rgordill/PoC/aws/qat/.cursor/rules/ansible.mdc).
 

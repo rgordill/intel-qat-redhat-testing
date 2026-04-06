@@ -2,6 +2,8 @@
 **/secrets.yml
 *.vault
 ansible/collections/
+ansible/inventory/hosts.auto.yml
+ansible/inventory/hosts.aws.auto.yml
 .terraform/
 *.tfstate
 *.tfstate.*
@@ -9,3 +11,7 @@ ansible/collections/
 crash.log
 *.pem
 !ansible/roles/certs/files/.gitkeep
+*.ansible
+**/__pycache__
+scripts/vm/result.csv
+*~

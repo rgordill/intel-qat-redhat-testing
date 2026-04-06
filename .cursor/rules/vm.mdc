@@ -4,28 +4,32 @@
 
 - **Do not** store the SSH **public** key in Ansible Vault for this workflow. Use a **path on the provisioner** instead.
 - **Ansible** (`ansible/group_vars/all.yml`):
-  - **`ssh_key_file`** — path to the provisioner’s **public** key file (default **`~/.ssh/id_rsa.pub`**). Tilde is expanded on the controller.
-  - **`ssh_public_key`** — `lookup('file', ssh_key_file | expanduser)` so Terraform roles receive key **material** without a vault.
-  - Override path per run: `-e ssh_key_file=/path/to/id_ed25519.pub`.
+  - **`qatbench_ssh_key_file`** — path to the provisioner’s **public** key file (default **`~/.ssh/id_rsa.pub`**). Tilde is expanded on the controller.
+  - **`qatbench_ssh_public_key`** — `lookup('file', qatbench_ssh_key_file | expanduser)` so Terraform roles receive key **material** without a vault.
+  - Override path per run: `-e qatbench_ssh_key_file=/path/to/id_ed25519.pub`.
 - **Terraform** (standalone `terraform apply`):
-  - **`ssh_key_file`** — same idea; content is `trimspace(file(pathexpand(var.ssh_key_file)))` for **libvirt** cloud-init and **AWS** `aws_key_pair`.
-  - **`terraform.tfvars`**: set `ssh_key_file = "~/.ssh/id_rsa.pub"` (or absolute path); do not paste key material into tfvars unless you intentionally bypass the file path.
+  - **`qatbench_ssh_key_file`** — same idea; content is `trimspace(file(pathexpand(var.qatbench_ssh_key_file)))` for **libvirt** cloud-init and **AWS** `aws_key_pair`.
+  - **`terraform.tfvars`**: set `qatbench_ssh_key_file = "~/.ssh/id_rsa.pub"` (or absolute path); do not paste key material into tfvars unless you intentionally bypass the file path.
 
 ## Cloud-init: which user gets the key
 
 - The **cloud-config** `users:` entry must name the account that exists on the image and that you SSH as.
 - **RHEL KVM / cloud images (libvirt):** use **`cloud-user`** — the key goes under that user’s `ssh_authorized_keys` in `user_data`.
-- Terraform should expose **`libvirt_ssh_user`** (or equivalent) defaulting to **`cloud-user`**, and the cloud-init `users:` block must use that same name so `ssh_authorized_keys` applies to the account you SSH as (see **SSH public key: file path** above).
+- Terraform should expose **`qatbench_libvirt_ssh_user`** (or equivalent) defaulting to **`cloud-user`**, and the cloud-init `users:` block must use that same name so `ssh_authorized_keys` applies to the account you SSH as (see **SSH public key: file path** above).
 - **AWS RHEL:** the key pair is registered with EC2; login user is **`ec2-user`** (not set in cloud-init here—AMI/userdata).
 
 ## VM SSH users (login)
 
 | Backend  | SSH user   | Notes |
 |----------|------------|--------|
-| **Libvirt** | **cloud-user** | Must match cloud-init `users:` name; key from `ssh_key_file`. |
-| **AWS**     | **ec2-user**   | Key from `aws_key_pair` built from `ssh_key_file` contents. |
+| **Libvirt** | **cloud-user** | Must match cloud-init `users:` name; key from `qatbench_ssh_key_file`. |
+| **AWS**     | **ec2-user**   | Key from `aws_key_pair` built from `qatbench_ssh_key_file` contents. |
 
 - Use **cloud-user** for libvirt/KVM and **ec2-user** for AWS in docs, examples, and outputs (e.g. `ssh cloud-user@<ip>` vs `ssh ec2-user@<ip>`).
+
+## RHEL subscription (dnf / RHSM)
+
+- **RHEL** guests need an active **subscription** before `dnf` can install from Red Hat repos (typical for KVM qcow2 labs). Use **organization ID + activation key** via Ansible (`rhel_subscription` role) and **`ansible/group_vars/vault.yml`** — see **`.cursor/rules/rhel.mdc`**.
 
 ## Libvirt boot disk (qcow2 backing store)
 

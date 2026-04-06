@@ -33,8 +33,6 @@ project_name: qatbench
 # RHEL: register guests before dnf (libvirt / AWS RHEL). See .cursor/rules/rhel.mdc and vault.yml.template.
 rhel_subscription_enabled: true
 
-# HAProxy scenario: a | b | c | d | e (see docs/ROUTER_ENV_MAPPING.md)
-haproxy_scenario: "a"
 haproxy_service: haproxy
 
 enable_qat: false
