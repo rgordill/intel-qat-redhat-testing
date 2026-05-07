@@ -7,10 +7,9 @@ prompt = no
 [req_dn]
 CN = {{ certs_role_nginx_cn }}
 
+# OpenSSL 3: inline SAN (section indirection @san can fail with "Error checking request extension section v3_req")
 [v3_req]
-subjectAltName = @san
-
-[san]
-DNS.1 = {{ certs_role_nginx_passthrough_host }}
-DNS.2 = localhost
-IP.1 = 127.0.0.1
+basicConstraints = CA:FALSE
+keyUsage = digitalSignature, keyEncipherment
+extendedKeyUsage = serverAuth
+subjectAltName = DNS:{{ certs_role_nginx_passthrough_host }}, DNS:localhost, IP:127.0.0.1

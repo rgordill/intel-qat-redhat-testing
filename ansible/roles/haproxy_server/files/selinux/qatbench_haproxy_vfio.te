@@ -1,0 +1,9 @@
+module qatbench_haproxy_vfio 1.0;
+
+require {
+	type haproxy_t;
+	type vfio_device_t;
+	class chr_file { getattr ioctl lock map open read write };
+}
+
+allow haproxy_t vfio_device_t:chr_file { getattr ioctl lock map open read write };

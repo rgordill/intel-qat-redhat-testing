@@ -3,7 +3,6 @@
 *.vault
 ansible/collections/
 ansible/inventory/hosts.auto.yml
-ansible/inventory/hosts.aws.auto.yml
 .terraform/
 *.tfstate
 *.tfstate.*

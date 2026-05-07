@@ -1,4 +1,15 @@
 ---
 # RHEL package names vary by minor release; override in host_vars for metal.
+# qatlib-service ships qat.service (qatmgr); qatengine is the OpenSSL engine for HAProxy ssl-engine.
 qatbench_packages:
   - qatlib
+  - qatlib-service
+  - qatengine
+
+# Intel QATlib boot flags (role applies via grubby when missing): intel_iommu=on, vfio-pci.ids=<VF IDs>.
+# Playbook output: task "Show QAT IOMMU / VFIO requirements and grub drift" + live /proc/cmdline summary.
+# On disk: /etc/qat-bench/README-intel-qat.txt (same IDs, tests, cmdline snapshot).
+# https://intel.github.io/quickassist/qatlib/requirements.html
+# vfio-pci.ids is built from lspci for QAT VFs (8086:4940|4941|4943|4945|4947); override below to skip discovery.
+qat_prereqs_vfio_pci_ids_override: ""
+qat_prereqs_reboot_after_kernel_cmdline_changes: true

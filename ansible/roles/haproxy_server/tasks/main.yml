@@ -1,20 +1,90 @@
 ---
-- name: Install HAProxy
-  ansible.builtin.dnf:
-    name: haproxy
+- name: Install taskset (util-linux) for CPU pinning
+  ansible.builtin.package:
+    name: util-linux
     state: present
 
-- name: Detect SELinux mode
-  ansible.builtin.command:
-    cmd: getenforce
-  register: qatbench_getenforce
-  changed_when: false
+- name: Check for HAProxy rebuilt from Red Hat SRPM with USE_ENGINE (haproxy_qat_build marker)
+  ansible.builtin.stat:
+    path: "{{ haproxy_qat_build_marker_path }}"
+  register: haproxy_qat_src_marker
 
-- name: Allow HAProxy to connect backends (SELinux)
-  ansible.builtin.command:
-    cmd: setsebool -P haproxy_connect_any on
-  when: qatbench_getenforce.stdout == 'Enforcing'
-  changed_when: true
+- name: QAT mode requires HAProxy from haproxy_qat_build (not distro repos)
+  ansible.builtin.assert:
+    that:
+      - haproxy_qat_src_marker.stat.exists | default(false) | bool
+    fail_msg: >-
+      enable_qat is true but {{ haproxy_qat_build_marker_path }} was not found.
+      Run the haproxy_qat_build role before haproxy_server when using QAT (it installs the USE_ENGINE RPM and writes this marker).
+  when: enable_qat | default(false) | bool
+
+- name: Install HAProxy from distro repos (only without QAT; with QAT, haproxy_qat_build installs the RPM)
+  ansible.builtin.dnf:
+    name: "{{ haproxy_dnf_package_spec }}"
+    state: present
+  when:
+    - not (enable_qat | default(false) | bool)
+    - not (haproxy_qat_src_marker.stat.exists | default(false) | bool)
+
+- name: Add haproxy user to qat group for QAT VFIO device access
+  ansible.builtin.user:
+    name: haproxy
+    groups: qat
+    append: true
+  when: enable_qat | default(false) | bool
+
+- name: Allow HAProxy to connect backends (SELinux boolean)
+  ansible.posix.seboolean:
+    name: haproxy_connect_any
+    state: true
+    persistent: true
+  when:
+    - (ansible_selinux | default({})).get('status', 'disabled') == 'enabled'
+    - (ansible_selinux | default({})).get('mode', '') | lower == 'enforcing'
+
+# systemd runs haproxy as haproxy_t; default policy denies VFIO char devs used by qatengine (AVC vfio_device_t).
+- name: Install tooling to build local SELinux module (HAProxy + VFIO for QAT)
+  ansible.builtin.dnf:
+    name:
+      - checkpolicy
+      - policycoreutils-devel
+    state: present
+  when:
+    - enable_qat | default(false) | bool
+    - (ansible_selinux | default({})).get('status', 'disabled') == 'enabled'
+    - (ansible_selinux | default({})).get('mode', '') | lower == 'enforcing'
+
+- name: Stage qatbench_haproxy_vfio SELinux type enforcement file
+  ansible.builtin.copy:
+    src: selinux/qatbench_haproxy_vfio.te
+    dest: /var/tmp/qatbench_haproxy_vfio.te
+    owner: root
+    group: root
+    mode: "0644"
+  register: haproxy_qat_vfio_te
+  when:
+    - enable_qat | default(false) | bool
+    - (ansible_selinux | default({})).get('status', 'disabled') == 'enabled'
+    - (ansible_selinux | default({})).get('mode', '') | lower == 'enforcing'
+
+- name: Build and load qatbench_haproxy_vfio SELinux module
+  ansible.builtin.shell: |
+    set -euo pipefail
+    TE=/var/tmp/qatbench_haproxy_vfio.te
+    MOD=/var/tmp/qatbench_haproxy_vfio.mod
+    PP=/var/tmp/qatbench_haproxy_vfio.pp
+    checkmodule -m -M -o "$MOD" "$TE"
+    semodule_package -o "$PP" -m "$MOD"
+    semodule -i "$PP"
+  args:
+    executable: /bin/bash
+  when:
+    - enable_qat | default(false) | bool
+    - (ansible_selinux | default({})).get('status', 'disabled') == 'enabled'
+    - (ansible_selinux | default({})).get('mode', '') | lower == 'enforcing'
+    - haproxy_qat_vfio_te is not skipped
+    - haproxy_qat_vfio_te.changed | default(true) | bool
+  notify: Restart haproxy
 
 - name: Ensure HAProxy config and state directories exist
   ansible.builtin.file:
@@ -30,8 +100,8 @@
     - "{{ haproxy_router_cacerts_dir }}"
 
 - name: Deploy HAProxy main config
-  ansible.builtin.copy:
-    src: conf/haproxy.config
+  ansible.builtin.template:
+    src: conf/haproxy.config.j2
     dest: "{{ haproxy_conf_dir }}/haproxy.config"
     owner: root
     group: haproxy
@@ -113,9 +183,57 @@
     mode: "0644"
   notify: Restart haproxy
 
+# Running HAProxy holds VFIO IOMMU groups; a second haproxy -c cannot open the same nodes (qatengine init fails).
+- name: Stop HAProxy before config check with QAT (release VFIO for one-shot qatengine in -c)
+  ansible.builtin.systemd:
+    name: haproxy
+    state: stopped
+  when: enable_qat | default(false) | bool
+  failed_when: false
+
 - name: Verify HAProxy configuration
   ansible.builtin.command:
-    cmd: haproxy -c -f {{ haproxy_conf_dir }}/haproxy.config
+    argv:
+      - /usr/sbin/haproxy
+      - -c
+      - -f
+      - "{{ haproxy_conf_dir }}/haproxy.config"
+  changed_when: false
+
+# Pre-create ansible_remote_tmp so modules run as haproxy do not inherit root-created 0700 paths under /tmp.
+- name: Ensure Ansible remote_tmp for become_user haproxy exists (owner haproxy)
+  ansible.builtin.file:
+    path: "{{ haproxy_server_remote_tmp_as_haproxy }}"
+    state: directory
+    owner: haproxy
+    group: haproxy
+    mode: "0700"
+  when: enable_qat | default(false) | bool
+
+- name: Memlock limits for haproxy user (VFIO/QAT DMA mappings)
+  ansible.builtin.copy:
+    dest: /etc/security/limits.d/99-haproxy-qat.conf
+    content: |
+      # VFIO_IOMMU_MAP_DMA may require raised locked memory for non-root (qatengine init).
+      haproxy soft memlock unlimited
+      haproxy hard memlock unlimited
+    owner: root
+    group: root
+    mode: "0644"
+  when: enable_qat | default(false) | bool
+
+- name: Verify HAProxy configuration as haproxy (qatengine init path)
+  ansible.builtin.command:
+    argv:
+      - su
+      - -s
+      - /bin/bash
+      - haproxy
+      - -c
+      - "/usr/sbin/haproxy -c -f {{ haproxy_conf_dir }}/haproxy.config"
+    chdir: /
+  become: true
+  when: enable_qat | default(false) | bool
   changed_when: false
 
 - name: Apply HAProxy config and unit (restart if notified)

@@ -1,0 +1,164 @@
+---
+- name: Require Red Hat Enterprise Linux for HAProxy SRPM rebuild
+  ansible.builtin.assert:
+    that:
+      - ansible_distribution in ['RedHat', 'Red Hat Enterprise Linux']
+      - ansible_distribution_major_version | int >= 9
+    fail_msg: "haproxy_qat_build is intended for RHEL 9+ with RHSM AppStream source repos."
+
+- name: AppStream source repos discover + RHSM enable (resume here after repo failures)
+  ansible.builtin.include_tasks: source_repo_phase.yml
+
+- name: Install tooling for SRPM download and rpmbuild
+  ansible.builtin.dnf:
+    name: "{{ haproxy_qat_build_host_packages }}"
+    state: present
+  when: haproxy_qat_build_do_rebuild | default(false) | bool
+
+- name: Ensure HAProxy QAT build directories exist
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - "{{ haproxy_qat_build_work_dir }}"
+    - "{{ haproxy_qat_build_rpmbuild_dir }}"
+    - "{{ haproxy_qat_build_rpmbuild_dir }}/SPECS"
+    - "{{ haproxy_qat_build_rpmbuild_dir }}/SOURCES"
+    - "{{ haproxy_qat_build_rpmbuild_dir }}/BUILD"
+    - "{{ haproxy_qat_build_rpmbuild_dir }}/RPMS"
+    - "{{ haproxy_qat_build_rpmbuild_dir }}/SRPMS"
+    - "{{ haproxy_qat_build_rpmbuild_dir }}/BUILDROOT"
+    - "{{ haproxy_qat_build_marker_path | dirname }}"
+  when: haproxy_qat_build_do_rebuild | default(false) | bool
+
+- name: Download HAProxy source RPM from enabled Red Hat repos (AppStream source)
+  ansible.builtin.command:
+    argv:
+      - dnf
+      - download
+      - --source
+      - --refresh
+      - -y
+      - --destdir
+      - "{{ haproxy_qat_build_work_dir }}"
+      - haproxy
+  changed_when: true
+  when: haproxy_qat_build_do_rebuild | default(false) | bool
+
+- name: Find downloaded HAProxy SRPM
+  ansible.builtin.find:
+    paths: "{{ haproxy_qat_build_work_dir }}"
+    patterns: "haproxy-*.src.rpm"
+    file_type: file
+  register: haproxy_qat_build_srcrpm_find
+  when: haproxy_qat_build_do_rebuild | default(false) | bool
+
+- name: Fail if no HAProxy SRPM was downloaded (check AppStream source repo and subscription)
+  ansible.builtin.fail:
+    msg: >-
+      No haproxy-*.src.rpm under {{ haproxy_qat_build_work_dir }}.
+      Enable an AppStream *source* repo (CDN or RHUI — role discovers Repo IDs) and ensure the host is registered (see docs/HAPROXY_USE_ENGINE_BUILD.md).
+  when:
+    - haproxy_qat_build_do_rebuild | default(false) | bool
+    - haproxy_qat_build_srcrpm_find.matched | default(0) | int < 1
+
+- name: Install SRPM into rpmbuild topdir
+  ansible.builtin.command:
+    argv:
+      - rpm
+      - -ivh
+      - --replacepkgs
+      - --define
+      - "_topdir {{ haproxy_qat_build_rpmbuild_dir }}"
+      - "{{ (haproxy_qat_build_srcrpm_find.files | sort(attribute='mtime', reverse=true))[0].path }}"
+  register: haproxy_qat_build_rpm_ivh
+  changed_when: true
+  failed_when: haproxy_qat_build_rpm_ivh.rc != 0
+  when: haproxy_qat_build_do_rebuild | default(false) | bool
+
+- name: Add USE_ENGINE=1 alongside USE_OPENSSL in haproxy.spec (same line as typical RHEL %build flags)
+  ansible.builtin.replace:
+    path: "{{ haproxy_qat_build_rpmbuild_dir }}/SPECS/haproxy.spec"
+    regexp: 'USE_OPENSSL=(1|yes)(?![^\n]*USE_ENGINE=1)'
+    replace: 'USE_OPENSSL=\1 USE_ENGINE=1'
+    backup: true
+  when: haproxy_qat_build_do_rebuild | default(false) | bool
+
+- name: Read haproxy.spec after patch (verify USE_ENGINE=1)
+  ansible.builtin.slurp:
+    src: "{{ haproxy_qat_build_rpmbuild_dir }}/SPECS/haproxy.spec"
+  register: haproxy_qat_build_spec_slurp
+  when: haproxy_qat_build_do_rebuild | default(false) | bool
+
+- name: Confirm USE_ENGINE=1 is present in haproxy.spec
+  ansible.builtin.assert:
+    that:
+      - "'USE_ENGINE=1' in (haproxy_qat_build_spec_slurp.content | b64decode)"
+    fail_msg: >-
+      Patched haproxy.spec must contain USE_ENGINE=1 (RHEL %build layout may have changed).
+  when: haproxy_qat_build_do_rebuild | default(false) | bool
+
+- name: Install lua-devel for HAProxy SRPM BuildRequires (from CRB after dnf config-manager)
+  ansible.builtin.dnf:
+    name: lua-devel
+    state: present
+  when: haproxy_qat_build_do_rebuild | default(false) | bool
+
+- name: Install build dependencies from haproxy.spec
+  ansible.builtin.command:
+    argv:
+      - dnf
+      - builddep
+      - -y
+      - "{{ haproxy_qat_build_rpmbuild_dir }}/SPECS/haproxy.spec"
+  changed_when: true
+  when: haproxy_qat_build_do_rebuild | default(false) | bool
+
+- name: Build binary RPMs from patched spec
+  ansible.builtin.command:
+    argv:
+      - rpmbuild
+      - -bb
+      - --define
+      - "_topdir {{ haproxy_qat_build_rpmbuild_dir }}"
+      - "{{ haproxy_qat_build_rpmbuild_dir }}/SPECS/haproxy.spec"
+  changed_when: true
+  when: haproxy_qat_build_do_rebuild | default(false) | bool
+
+- name: Find non-debug HAProxy RPMs produced by rpmbuild
+  ansible.builtin.find:
+    paths: "{{ haproxy_qat_build_rpmbuild_dir }}/RPMS/{{ ansible_architecture }}"
+    patterns: "haproxy-*.rpm"
+    file_type: file
+    excludes: "*debuginfo*,*debugsource*"
+  register: haproxy_qat_build_bin_rpms
+  when: haproxy_qat_build_do_rebuild | default(false) | bool
+
+- name: Fail if rpmbuild produced no installable HAProxy RPMs
+  ansible.builtin.fail:
+    msg: "rpmbuild completed but no haproxy-*.rpm found under {{ haproxy_qat_build_rpmbuild_dir }}/RPMS/{{ ansible_architecture }}."
+  when:
+    - haproxy_qat_build_do_rebuild | default(false) | bool
+    - haproxy_qat_build_bin_rpms.matched | default(0) | int < 1
+
+- name: Install rebuilt HAProxy RPMs from local paths
+  ansible.builtin.dnf:
+    name: "{{ haproxy_qat_build_bin_rpms.files | map(attribute='path') | list }}"
+    state: present
+    disable_gpg_check: true
+  when: haproxy_qat_build_do_rebuild | default(false) | bool
+
+- name: Record successful USE_ENGINE rebuild (prevents haproxy_server from overwriting with distro pin)
+  ansible.builtin.copy:
+    dest: "{{ haproxy_qat_build_marker_path }}"
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      HAProxy was rebuilt from Red Hat AppStream SRPM (rhel-9-for-<arch>-appstream-source-rpms) with USE_ENGINE=1.
+      rpmbuild topdir: {{ haproxy_qat_build_rpmbuild_dir }}
+      RPM paths: {{ haproxy_qat_build_bin_rpms.files | default([]) | map(attribute='path') | list | join(', ') }}
+  when: haproxy_qat_build_do_rebuild | default(false) | bool

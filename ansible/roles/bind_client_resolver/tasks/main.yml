@@ -1,35 +1,51 @@
 ---
-- name: Use benchmark BIND as client resolver (NetworkManager)
+# Discover profile name: community.general.nmcli has no list mode; use nmcli read-only via command (not shell).
+- name: List active NetworkManager connections (NAME:DEVICE)
+  ansible.builtin.command:
+    argv:
+      - nmcli
+      - -t
+      - -f
+      - NAME,DEVICE
+      - connection
+      - show
+      - --active
+  register: bind_nm_active
+  changed_when: false
+
+- name: Resolve connection profile name for default IPv4 interface
+  ansible.builtin.set_fact:
+    bind_nm_conn_name: "{{ item.rsplit(':', 1)[0] }}"
+  loop: "{{ bind_nm_active.stdout_lines | default([]) }}"
   when:
-    - bind_client_use_server_dns | bool
-    - bind_server_enabled | default(true) | bool
-  block:
-    - name: Discover active NetworkManager connection for default IPv4 interface
-      ansible.builtin.shell: |
-        set -euo pipefail
-        nmcli -t -f NAME,DEVICE connection show --active | awk -F: -v d='{{ ansible_default_ipv4.interface }}' '$2==d {print $1; exit}'
-      register: bind_nm_conn
-      changed_when: false
+    - ansible_default_ipv4.interface is defined
+    - item.rsplit(':', 1) | length == 2
+    - item.rsplit(':', 1)[-1] == ansible_default_ipv4.interface
 
-    - name: Set DNS and search domain on active connection
-      ansible.builtin.command:
-        cmd: >
-          nmcli connection modify "{{ bind_nm_conn.stdout }}"
-          ipv4.dns "{{ bind_resolver_server_ip }}"
-          ipv4.dns-search "{{ bind_zone_domain }}"
-          ipv4.ignore-auto-dns yes
-      when: bind_nm_conn.stdout | length > 0
-      changed_when: true
+- name: Ensure bind_nm_conn_name is defined when no NM row matched
+  ansible.builtin.set_fact:
+    bind_nm_conn_name: "{{ bind_nm_conn_name | default('') }}"
 
-    - name: Re-activate connection to apply DNS
-      ansible.builtin.command:
-        cmd: nmcli connection up "{{ bind_nm_conn.stdout }}"
-      when: bind_nm_conn.stdout | length > 0
-      changed_when: true
+- name: Set DNS and search domain on active connection
+  community.general.nmcli:
+    conn_name: "{{ bind_nm_conn_name }}"
+    state: present
+    dns4:
+      - "{{ bind_resolver_server_ip }}"
+    dns4_search:
+      - "{{ bind_zone_domain }}"
+    dns4_ignore_auto: true
+  when: bind_nm_conn_name | length > 0
 
-    - name: Skip NM DNS (no active connection matched)
-      ansible.builtin.debug:
-        msg: >-
-          No active NM connection for {{ ansible_default_ipv4.interface | default('unknown') }};
-          set DNS manually to {{ bind_resolver_server_ip }} for {{ bind_zone_domain }}.
-      when: bind_nm_conn.stdout | length == 0
+- name: Re-activate connection to apply DNS
+  community.general.nmcli:
+    conn_name: "{{ bind_nm_conn_name }}"
+    state: up
+  when: bind_nm_conn_name | length > 0
+
+- name: Skip NM DNS (no active connection matched)
+  ansible.builtin.debug:
+    msg: >-
+      No active NM connection for {{ ansible_default_ipv4.interface | default('unknown') }};
+      set DNS manually to {{ bind_resolver_server_ip }} for {{ bind_zone_domain }}.
+  when: bind_nm_conn_name | length == 0

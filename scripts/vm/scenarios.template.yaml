@@ -1,0 +1,32 @@
+# Base scenarios (no wrk sizing). Placeholder <qatbench_vm_domain> is kept in target_url.
+# Generate scenarios.csv with: generate_scenarios.py --cpus N --duration SEC
+#
+# wrk_run: "1" to run wrk; "0" for HTTPS-only smoke without wrk (see run-scenarios.sh).
+scenarios:
+  - id: a
+    name: Plain HTTP
+    topology: Client HTTP to HAProxy HTTP to nginx HTTP
+    router_analogue: Plain be_http / public
+    target_url: http://nginx-http.apps.<qatbench_vm_domain>/
+    wrk_run: "1"
+
+  - id: b
+    name: Edge TLS
+    topology: Client HTTPS to HAProxy TLS to nginx HTTP
+    router_analogue: Edge termination be_edge_http
+    target_url: https://nginx-edge.apps.<qatbench_vm_domain>/
+    wrk_run: "1"
+
+  - id: c
+    name: Passthrough
+    topology: Client HTTPS (SNI) TCP passthrough to nginx HTTPS
+    router_analogue: be_tcp / public_ssl SNI map
+    target_url: https://nginx-passthrough.apps.<qatbench_vm_domain>/
+    wrk_run: "1"
+
+  - id: d
+    name: Re-encrypt
+    topology: Client HTTPS to HAProxy TLS to nginx HTTPS
+    router_analogue: Re-encrypt be_secure
+    target_url: https://nginx-reencrypt.apps.<qatbench_vm_domain>/
+    wrk_run: "1"

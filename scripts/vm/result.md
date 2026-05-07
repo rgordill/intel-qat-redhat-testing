@@ -4,9 +4,7 @@ Generated from [`result.csv`](result.csv) — refresh with `scripts/vm/render-re
 
 | timestamp_utc | scenario_id | target_url | provider | wrk_run | wrk_threads | wrk_connections | wrk_duration_sec | requests_per_sec | transfer_per_sec | total_requests | wrk_actual_sec | latency_avg_ms | latency_stdev_ms | latency_max_ms | socket_errors | status |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 2026-04-06T08:14:23Z | a | http://nginx-http.apps.atik.demo/ | libvirt | 1 | 4 | 64 | 30 | 6631.51 | 1.64MB | 199475 | 30.08 | 6.46ms | 7.19ms | 76.27ms | ok |  |
-| 2026-04-06T08:14:56Z | a-heavy | http://nginx-http.apps.atik.demo/ | libvirt | 1 | 16 | 256 | 30 | 1766.80 | 448.60KB | 53191 | 30.11 | 64.69ms | 39.40ms | 177.51ms | ok |  |
-| 2026-04-06T08:15:28Z | b | https://nginx-edge.apps.atik.demo/ | libvirt | 1 | 4 | 64 | 30 | 2979.85 | 823.53KB | 89570 | 30.06 | 11.13ms | 10.14ms | 296.98ms | ok |  |
-| 2026-04-06T08:16:01Z | b-heavy | https://nginx-edge.apps.atik.demo/ | libvirt | 1 | 16 | 256 | 30 | 3066.53 | 847.49KB | 92298 | 30.10 | 38.86ms | 39.98ms | 1.01s | ok |  |
-| 2026-04-06T08:16:34Z | c | https://nginx-passthrough.apps.atik.demo/ | libvirt | 1 | 4 | 64 | 30 | 2761.40 | 439.56KB | 83075 | 30.08 | 2.57ms | 2.45ms | 30.34ms | ok |  |
-| 2026-04-06T08:17:06Z | d | https://nginx-reencrypt.apps.atik.demo/ | libvirt | 1 | 4 | 64 | 30 | 1422.97 | 393.26KB | 42801 | 30.08 | 34.01ms | 16.03ms | 366.87ms | ok |  |
+| 2026-04-07T07:24:03Z | a | http://nginx-http.apps.sandbox963.opentlc.com/ | aws | 1 | 4 | 64 | 30 | 71358.84 | 17.69MB | 2141593 | 30.01 | 574.95us | 1.87ms | 213.25ms | ok |  |
+| 2026-04-07T07:26:47Z | b | https://nginx-edge.apps.sandbox963.opentlc.com/ | aws | 1 | 4 | 64 | 30 | 5844.21 | 1.58MB | 175816 | 30.08 | 2.55ms | 2.22ms | 20.18ms | ok |  |
+| 2026-04-07T07:29:31Z | c | https://nginx-passthrough.apps.sandbox963.opentlc.com/ | aws | 1 | 4 | 64 | 30 | 5170.17 | 822.99KB | 155530 | 30.08 | 2.98ms | 2.39ms | 22.87ms | ok |  |
+| 2026-04-07T07:32:15Z | d | https://nginx-reencrypt.apps.sandbox963.opentlc.com/ | aws | 1 | 4 | 64 | 30 | 5662.77 | 1.53MB | 170236 | 30.06 | 4.61ms | 3.08ms | 61.19ms | ok |  |

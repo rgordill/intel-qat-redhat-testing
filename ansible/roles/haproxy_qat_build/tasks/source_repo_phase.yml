@@ -1,0 +1,175 @@
+---
+# Single phase for RHSM repo discovery + enable. Use --start-at-task on the importing task in main.yml to resume here.
+- name: Refresh HAProxy USE_ENGINE rebuild context (marker, probe, do_rebuild)
+  ansible.builtin.include_tasks: rebuild_context.yml
+
+- name: Discover AppStream source Repo IDs (RHSM CDN vs cloud RHUI)
+  ansible.builtin.shell: |
+    set -o pipefail
+    # Pair Repo ID with the following Repo Name — RHUI listings often omit "source" from the ID string alone.
+    subscription-manager repos --list-available 2>/dev/null | awk -v arch="{{ ansible_architecture }}" '
+    /^Repo ID:/ {
+      pending = $0
+      sub(/^Repo ID:[[:space:]]*/, "", pending)
+      next
+    }
+    /^Repo Name:/ {
+      line = tolower($0)
+      if (pending != "" && index(pending, arch) > 0 && line ~ /appstream/ && line ~ /source/) print pending
+      pending = ""
+      next
+    }
+    ' | sort -u
+  args:
+    executable: /bin/bash
+  register: haproxy_qat_build_discovered_appstream_source_repos
+  changed_when: false
+  failed_when: false
+  when:
+    - haproxy_qat_build_do_rebuild | default(false) | bool
+    - haproxy_qat_build_discovered_appstream_source_repos is not defined
+
+- name: Normalize discovered AppStream source Repo IDs
+  ansible.builtin.set_fact:
+    haproxy_qat_build_discovered_source_clean: >-
+      {{
+        (haproxy_qat_build_discovered_appstream_source_repos.stdout_lines | default([]))
+        | reject('equalto', '') | map('trim') | list
+      }}
+  when:
+    - haproxy_qat_build_do_rebuild | default(false) | bool
+    - haproxy_qat_build_discovered_appstream_source_repos is defined
+
+- name: Resolve AppStream source repos — explicit haproxy_qat_build_rhsm_source_repo_ids
+  ansible.builtin.set_fact:
+    haproxy_qat_build_effective_source_repo_ids: "{{ haproxy_qat_build_rhsm_source_repo_ids }}"
+  when:
+    - haproxy_qat_build_do_rebuild | default(false) | bool
+    - haproxy_qat_build_rhsm_source_repo_ids | length > 0
+
+- name: Resolve AppStream source repos — subscription-manager discovery
+  ansible.builtin.set_fact:
+    haproxy_qat_build_effective_source_repo_ids: "{{ haproxy_qat_build_discovered_source_clean }}"
+  when:
+    - haproxy_qat_build_do_rebuild | default(false) | bool
+    - haproxy_qat_build_rhsm_source_repo_ids | length == 0
+    - (haproxy_qat_build_discovered_source_clean | default([])) | length > 0
+
+- name: Probe RHSM for first matching fallback AppStream source Repo ID
+  ansible.builtin.shell: |
+    subscription-manager repos --list-available 2>/dev/null | sed -n 's/^Repo ID:[[:space:]]*\(.*\)/\1/p' | grep -Fx "{{ item }}"
+  loop: "{{ haproxy_qat_build_rhsm_source_repo_ids_fallback }}"
+  register: haproxy_qat_build_fallback_repo_probe
+  changed_when: false
+  failed_when: false
+  when:
+    - haproxy_qat_build_do_rebuild | default(false) | bool
+    - haproxy_qat_build_rhsm_source_repo_ids | length == 0
+    - (haproxy_qat_build_discovered_source_clean | default([])) | length == 0
+
+- name: Resolve AppStream source repos — first RHUI or CDN fallback known to RHSM
+  ansible.builtin.set_fact:
+    haproxy_qat_build_effective_source_repo_ids: >-
+      {{
+        [
+          haproxy_qat_build_fallback_repo_probe.results
+          | selectattr('rc', 'equalto', 0)
+          | map(attribute='item')
+          | list
+          | first
+        ]
+      }}
+  when:
+    - haproxy_qat_build_do_rebuild | default(false) | bool
+    - haproxy_qat_build_rhsm_source_repo_ids | length == 0
+    - (haproxy_qat_build_discovered_source_clean | default([])) | length == 0
+    - haproxy_qat_build_fallback_repo_probe is defined
+    - not (haproxy_qat_build_fallback_repo_probe.skipped | default(false))
+    - (haproxy_qat_build_fallback_repo_probe.results | selectattr('rc', 'equalto', 0) | list | length) > 0
+
+- name: Try enabling fallback AppStream source Repo IDs via subscription-manager (when list parsing missed)
+  ansible.builtin.command:
+    argv:
+      - subscription-manager
+      - repos
+      - "--enable={{ item }}"
+  loop: "{{ haproxy_qat_build_rhsm_source_repo_ids_fallback }}"
+  register: haproxy_qat_build_try_enable_fallback
+  changed_when: >-
+    {{
+      (haproxy_qat_build_try_enable_fallback.results | default([])
+       | selectattr('rc', 'equalto', 0) | list | length) > 0
+    }}
+  failed_when: false
+  when:
+    - haproxy_qat_build_do_rebuild | default(false) | bool
+    - haproxy_qat_build_effective_source_repo_ids is not defined
+
+- name: Resolve effective AppStream source repo from subscription-manager enable (first success)
+  ansible.builtin.set_fact:
+    haproxy_qat_build_effective_source_repo_ids: >-
+      {{ [ (haproxy_qat_build_try_enable_fallback.results | selectattr('rc', 'equalto', 0) | map(attribute='item') | list | first) ] }}
+  when:
+    - haproxy_qat_build_do_rebuild | default(false) | bool
+    - haproxy_qat_build_try_enable_fallback is defined
+    - not (haproxy_qat_build_try_enable_fallback.skipped | default(false))
+    - (haproxy_qat_build_try_enable_fallback.results | selectattr('rc', 'equalto', 0) | list | length) > 0
+
+- name: Require AppStream source repos to enable (SRPM download)
+  ansible.builtin.assert:
+    that:
+      - haproxy_qat_build_effective_source_repo_ids is defined
+      - haproxy_qat_build_effective_source_repo_ids | length > 0
+    fail_msg: >-
+      No AppStream source repository IDs resolved. Register with RHSM/RHUI, ensure source repos are entitled,
+      or set haproxy_qat_build_rhsm_source_repo_ids / haproxy_qat_build_rhsm_source_repo_ids_fallback.
+      Check: subscription-manager repos --list-available | grep -i source | grep -i appstream
+  when: haproxy_qat_build_do_rebuild | default(false) | bool
+
+- name: Enable AppStream source repositories (subscription-manager CLI; rhsm_repository rejects some RHUI Repo IDs)
+  ansible.builtin.command:
+    argv:
+      - subscription-manager
+      - repos
+      - "--enable={{ item }}"
+  loop: "{{ haproxy_qat_build_effective_source_repo_ids }}"
+  register: haproxy_qat_build_sm_enable_source_repos
+  changed_when: haproxy_qat_build_sm_enable_source_repos.rc == 0
+  failed_when: haproxy_qat_build_sm_enable_source_repos.rc != 0
+  when:
+    - haproxy_qat_build_do_rebuild | default(false) | bool
+    - haproxy_qat_build_effective_source_repo_ids is defined
+
+- name: Enable extra RHSM repositories (CRB / build deps — ignore Repo IDs not offered on this platform)
+  ansible.builtin.command:
+    argv:
+      - subscription-manager
+      - repos
+      - "--enable={{ item }}"
+  loop: "{{ haproxy_qat_build_rhsm_extra_repo_ids }}"
+  register: haproxy_qat_build_sm_enable_extra_repos
+  changed_when: haproxy_qat_build_sm_enable_extra_repos.rc == 0
+  failed_when: false
+  when:
+    - haproxy_qat_build_do_rebuild | default(false) | bool
+    - haproxy_qat_build_rhsm_extra_repo_ids | length > 0
+
+- name: Enable repos via dnf config-manager (AWS RHUI keeps enabled=0 until toggled in redhat-rhui.repo)
+  ansible.builtin.command:
+    argv:
+      - dnf
+      - config-manager
+      - --set-enabled
+      - "{{ item }}"
+  loop: "{{ haproxy_qat_build_dnf_set_enabled_repo_ids }}"
+  register: haproxy_qat_build_dnf_config_enable
+  changed_when: haproxy_qat_build_dnf_config_enable.rc == 0
+  failed_when: false
+  when:
+    - haproxy_qat_build_do_rebuild | default(false) | bool
+    - haproxy_qat_build_dnf_set_enabled_repo_ids | length > 0
+
+- name: Refresh DNF metadata after enabling source and CRB repositories
+  ansible.builtin.dnf:
+    update_cache: true
+  when: haproxy_qat_build_do_rebuild | default(false) | bool

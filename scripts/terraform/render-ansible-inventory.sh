@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Write ansible/inventory/*.auto.yml from Terraform state (terraform output -raw ansible_inventory_yaml).
+# Write ansible/inventory/hosts.auto.yml from Terraform state (terraform output -raw ansible_inventory_yaml).
+# Same path for libvirt and AWS — only one active inventory file for the current stack.
 # Requires: terraform >= 1.x, initialized stack with outputs (apply or refresh at least once).
 #
 # Usage:
@@ -22,14 +23,10 @@ fi
 
 PROVIDER="${1:?Usage: $0 libvirt|aws}"
 TF_DIR="${QAT_BENCH_ROOT}/terraform/${PROVIDER}"
+OUT="${QAT_BENCH_ROOT}/ansible/inventory/hosts.auto.yml"
 
 case "$PROVIDER" in
-  libvirt)
-    OUT="${QAT_BENCH_ROOT}/ansible/inventory/hosts.auto.yml"
-    ;;
-  aws)
-    OUT="${QAT_BENCH_ROOT}/ansible/inventory/hosts.aws.auto.yml"
-    ;;
+  libvirt|aws) ;;
   *)
     echo "Unknown provider: ${PROVIDER} (use libvirt or aws)" >&2
     exit 1
@@ -53,5 +50,5 @@ fi
 
 mv "${OUT}.tmp" "$OUT"
 echo "Wrote ${OUT}"
-echo "Example: cd ${QAT_BENCH_ROOT}/ansible && ansible-playbook -i inventory/$(basename "$OUT") playbooks/deploy_benchmark.yml"
-echo "Or: export QAT_BENCH_INVENTORY=inventory/$(basename "$OUT")   # for scripts/vm/*.sh"
+echo "Example: cd ${QAT_BENCH_ROOT}/ansible && ansible-playbook -i inventory/hosts.auto.yml playbooks/deploy_benchmark.yml"
+echo "Or: export QAT_BENCH_INVENTORY=inventory/hosts.auto.yml   # for scripts/vm/*.sh"

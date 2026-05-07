@@ -191,7 +191,8 @@ If you must use shell/command:
 project/
 ├── ansible.cfg
 ├── inventory/
-│   └── hosts.yml
+│   ├── hosts.yml          # stub (ansible.cfg); generated: hosts.auto.yml (gitignored)
+│   └── hosts.example.yml
 ├── group_vars/
 │   ├── all.yml
 │   └── vault.yml

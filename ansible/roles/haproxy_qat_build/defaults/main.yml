@@ -1,0 +1,32 @@
+---
+# SRPM and rebuild: use Red Hat AppStream *source* repos only (e.g. rhel-9-for-x86_64-appstream-source-rpms).
+# Do not use third-party sources such as RPM Fusion for HAProxy.
+haproxy_qat_build_rpmbuild_dir: /var/lib/qatbench/rpmbuild
+haproxy_qat_build_work_dir: /var/lib/qatbench/haproxy-qat-src
+haproxy_qat_build_marker_path: /var/lib/qatbench/haproxy-use-engine-from-src
+
+# AppStream *source* repos (HAProxy SRPM). Empty = discover via subscription-manager (RHUI on AWS/Azure vs CDN IDs).
+# Override with explicit Repo IDs on Satellite or if discovery fails.
+haproxy_qat_build_rhsm_source_repo_ids: []
+
+# If discovery finds nothing, try these in order (RHUI cloud images vs RHSM CDN).
+haproxy_qat_build_rhsm_source_repo_ids_fallback:
+  - "rhui-rhel-9-for-{{ ansible_architecture }}-appstream-source-rhui-rpms"
+  - "rhel-9-for-{{ ansible_architecture }}-appstream-source-rpms"
+
+# subscription-manager --enable (ignored for some RHUI *.repo stanzas; see dnf_set_enabled_* below).
+haproxy_qat_build_rhsm_extra_repo_ids:
+  - "codeready-builder-for-rhel-9-rhui-rpms"
+  - "codeready-builder-for-rhel-9-{{ ansible_architecture }}-rpms"
+
+# RHUI stores repos in redhat-rhui.repo with enabled=0; toggle with dnf config-manager --set-enabled.
+haproxy_qat_build_dnf_set_enabled_repo_ids:
+  - "codeready-builder-for-rhel-9-rhui-rpms"
+  - "codeready-builder-for-rhel-9-{{ ansible_architecture }}-rpms"
+
+haproxy_qat_build_force: false
+
+# Packages needed to download SRPM and run rpmbuild / builddep.
+haproxy_qat_build_host_packages:
+  - rpm-build
+  - dnf-plugins-core

@@ -4,7 +4,7 @@ QAT_BENCH_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 export QAT_BENCH_ROOT
 UTIL_DIR="${QAT_BENCH_ROOT}/scripts/utils"
 VM_DIR="${QAT_BENCH_ROOT}/scripts/vm"
-# If unset, deploy/run scripts resolve via QAT_BENCH_PROVIDER (e.g. inventory/hosts.auto.yml for libvirt).
+# If unset, deploy/run scripts resolve via QAT_BENCH_PROVIDER → inventory/hosts.auto.yml (libvirt or aws).
 QAT_BENCH_INVENTORY="${QAT_BENCH_INVENTORY:-}"
 export QAT_BENCH_INVENTORY
 # libvirt | aws — used to pick default inventory when QAT_BENCH_INVENTORY is unset
@@ -34,11 +34,10 @@ ansible_default_provider() {
   fi
 }
 
-# Default inventory path under ansible/ for a provider.
+# Default inventory path under ansible/ (same file for libvirt and aws; re-render after switching stacks).
 default_inventory_for_provider() {
   case "${1:-libvirt}" in
-    libvirt) echo "inventory/hosts.auto.yml" ;;
-    aws) echo "inventory/hosts.aws.auto.yml" ;;
+    libvirt|aws) echo "inventory/hosts.auto.yml" ;;
     *)
       echo "ERROR: unknown provider: $1 (use libvirt or aws)" >&2
       return 1
@@ -90,7 +89,7 @@ load_benchmark_inventory() {
   inv_rel="$(resolved_inventory_path)"
   inv_abs="${QAT_BENCH_ROOT}/ansible/${inv_rel}"
   if [[ ! -f "$inv_abs" ]]; then
-    echo "ERROR: inventory not found: ${inv_abs} (run provision-infrastructure.sh or set QAT_BENCH_INVENTORY)" >&2
+    echo "ERROR: inventory not found: ${inv_abs} (run scripts/terraform/render-ansible-inventory.sh libvirt|aws or provision-infrastructure.sh, or set QAT_BENCH_INVENTORY)" >&2
     return 1
   fi
 
@@ -132,10 +131,15 @@ scenario_ids_from_csv() {
   python3 "${VM_DIR}/scenario_csv.py" ids "$csv"
 }
 
-# Expand scenarios.csv target_url for a row (<qatbench_vm_domain> → real domain).
+# Expand scenarios.csv target_url: merged bench-server vars like Ansible (Jinja2 {{ }} / {% %}),
+# plus legacy <qatbench_vm_domain>. Args: csv path, scenario id, inventory path relative to ansible/
+# (e.g. inventory/hosts.auto.yml). Optional QAT_BENCH_BENCH_SERVER_VARS_JSON → --vars-json-file (one ansible-inventory per run).
 scenario_csv_target_url() {
-  local csv=$1 id=$2 domain=$3
-  local tpl
-  tpl=$(scenario_csv_get "$csv" "$id" target_url)
-  echo "${tpl//<qatbench_vm_domain>/${domain}}"
+  local csv=$1 id=$2 inv_rel=$3
+  local -a args=(render-target-url "$csv" "$id")
+  [[ -n "${inv_rel}" ]] && args+=(--inventory "$inv_rel")
+  if [[ -n "${QAT_BENCH_BENCH_SERVER_VARS_JSON:-}" && -f "${QAT_BENCH_BENCH_SERVER_VARS_JSON}" ]]; then
+    args+=(--vars-json-file "${QAT_BENCH_BENCH_SERVER_VARS_JSON}")
+  fi
+  python3 "${VM_DIR}/scenario_csv.py" "${args[@]}"
 }

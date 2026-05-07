@@ -1,10 +1,22 @@
+{# HAProxy nbthread: vcpus/2, minimum 1, maximum 64 (no thread-groups). #}
+{% set _vcpus = (ansible_processor_vcpus | default(4)) | int %}
+{% set _threads_from_vcpus = ([(_vcpus // 2) | int, 1] | max) %}
+{% set _threads_from_vcpus = ([_threads_from_vcpus, 64] | min) %}
+{% set _haproxy_threads = (haproxy_nbthread | default(_threads_from_vcpus)) | int %}
+{% set _haproxy_threads = ([_haproxy_threads, 1] | max) %}
+{% set _haproxy_threads = ([_haproxy_threads, 64] | min) %}
 global
+  # {{ ansible_managed }}
   # Drop resource limit checks to mitigate https://issues.redhat.com/browse/OCPBUGS-21803 in HAProxy 2.6.
   no strict-limits
   maxconn 50000
-  nbthread 4
-
-
+  nbthread {{ _haproxy_threads }}
+{% if enable_qat | default(false) | bool %}
+  # Intel QAT: engine + async handshakes (Intel HAProxy+QAT guides, e.g. Network Builders Alibaba Cloud tech guide).
+  # Requires HAProxy USE_ENGINE=1 — see docs/HAPROXY_USE_ENGINE_BUILD.md. HAProxy: ssl-mode-async enables ASYNC during handshakes.
+  ssl-engine {{ haproxy_qat_openssl_engine }} algo {{ haproxy_qat_ssl_engine_algo }}
+  ssl-mode-async
+{% endif %}
 
   daemon
   ca-base /etc/ssl

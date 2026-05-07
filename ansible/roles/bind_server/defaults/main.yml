@@ -1,7 +1,5 @@
 ---
 # Authoritative DNS on the benchmark server (BIND). Zone matches qatbench / libvirt / AWS domain.
-bind_server_enabled: true
-
 bind_packages:
   - bind
   - bind-utils

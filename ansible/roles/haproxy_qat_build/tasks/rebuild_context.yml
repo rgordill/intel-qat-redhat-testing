@@ -1,0 +1,40 @@
+---
+# Marker + haproxy probe + do_rebuild — imported at role start and when resuming mid-role.
+- name: Stat existing USE_ENGINE rebuild marker
+  ansible.builtin.stat:
+    path: "{{ haproxy_qat_build_marker_path }}"
+  register: haproxy_qat_build_marker
+
+- name: Check whether /usr/sbin/haproxy exists
+  ansible.builtin.stat:
+    path: /usr/sbin/haproxy
+  register: haproxy_qat_build_haproxy_bin
+
+- name: Run haproxy -vv for build flags (when binary is present)
+  ansible.builtin.command:
+    argv:
+      - /usr/sbin/haproxy
+      - -vv
+  register: haproxy_qat_build_haproxy_vv
+  changed_when: false
+  failed_when: false
+  when: haproxy_qat_build_haproxy_bin.stat.exists | bool
+
+- name: Derive USE_ENGINE probe result for idempotency
+  ansible.builtin.set_fact:
+    haproxy_qat_build_engine_probe:
+      stdout: >-
+        {{ 'NO_BINARY' if not (haproxy_qat_build_haproxy_bin.stat.exists | bool)
+        else ('HAS_ENGINE' if 'USE_ENGINE' in (
+        (haproxy_qat_build_haproxy_vv.stdout | default(''))
+        ~ (haproxy_qat_build_haproxy_vv.stderr | default(''))
+        ) else 'NO_ENGINE') }}
+
+- name: Set rebuild flag (skip when marker + binary already has USE_ENGINE, unless force)
+  ansible.builtin.set_fact:
+    haproxy_qat_build_do_rebuild: >-
+      {{ not (
+           (haproxy_qat_build_marker.stat.exists | bool)
+           and ('HAS_ENGINE' in (haproxy_qat_build_engine_probe.stdout | default('')))
+           and not (haproxy_qat_build_force | default(false) | bool)
+         ) }}

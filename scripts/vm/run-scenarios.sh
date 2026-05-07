@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
-# Deploy and/or smoke-test benchmark scenarios. Definitions: scenarios.csv (see scenarios.md).
+# Smoke-test benchmark scenarios (CSV-driven). Deploy server/client first: ./deploy_components.sh
+# Definitions: scenarios.csv (see scenarios.md).
 #
 # Each row has a unique id (e.g. a, a-heavy, c … f) in scenarios.csv.
-# Default inventory path follows provider in ansible/group_vars/all.yml (override with QAT_BENCH_INVENTORY or QAT_BENCH_PROVIDER).
-# Smoke tests run on bench-client over SSH: ping → openssl s_client → curl → wrk. URL from CSV target_url
-# (<qatbench_vm_domain> replaced from inventory). Bench CA on client — curl/wrk use default trust (no -k).
+# Default inventory: ansible/inventory/hosts.auto.yml (override with QAT_BENCH_INVENTORY, or QAT_BENCH_PROVIDER + render).
+# Tests run on bench-client over SSH: ping → openssl s_client → curl → wrk. URL from CSV target_url
+# expanded with merged Ansible vars (Jinja2 {{ … }} like host vars) and legacy <qatbench_vm_domain>.
+# Bench CA on client — curl/wrk use default trust (no -k). Requires ansible-inventory + jinja2 for templated URLs.
 # SSH: StrictHostKeyChecking=no, UserKnownHostsFile=/dev/null (lab tests only).
 # result.csv: timestamp, scenario, url, provider, wrk_run + wrk_threads/wrk_connections/wrk_duration_sec from scenarios.csv, then parsed wrk metrics and status.
 #
@@ -13,16 +15,16 @@
 #   ./run-scenarios.sh a a-heavy
 #   ./render-scenarios-md.sh   # refresh scripts/vm/scenarios.md from CSV
 #
-# Inventory: QAT_BENCH_INVENTORY, or QAT_BENCH_PROVIDER (libvirt|aws), else provider from ansible/group_vars/all.yml.
+# Inventory: QAT_BENCH_INVENTORY if set; else inventory/hosts.auto.yml for QAT_BENCH_PROVIDER or provider in group_vars/all.yml.
 #
 # Flags:
 #   --list, -l          Print scenarios table (CSV as columns)
 #   --csv FILE          Scenario CSV (default: scripts/vm/scenarios.csv)
 #   --provider, -p      libvirt|aws — override default inventory when QAT_BENCH_INVENTORY unset
-#   --skip-deploy       Only run smoke tests
-#   --skip-tests        Only ansible deploy per row
+#   --skip-tests        Skip client SSH smoke tests (still prints scenario headers)
 #
-# Tests: bench-client must be reachable via SSH (inventory); SERVER= sets HAProxy IP for ping/openssl (default bench-server).
+# Tests: bench-client must be reachable via SSH (inventory). Ping uses the hostname from target_url (DNS).
+# Optional SERVER= / bench-server IP (CONNECT_ADDR) overrides openssl -connect only; ping never uses the IP.
 set -euo pipefail
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # shellcheck source=common.sh
@@ -67,11 +69,10 @@ parse_wrk_from_log() {
 }
 
 SCENARIOS_CSV="${VM_DIR}/scenarios.csv"
-SKIP_DEPLOY=0
 SKIP_TESTS=0
 LIST_ONLY=0
 
-usage() { sed -n '1,75p' "$0"; }
+usage() { sed -n '1,26p' "$0"; }
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -79,7 +80,6 @@ while [[ $# -gt 0 ]]; do
     -l|--list) LIST_ONLY=1; shift ;;
     --csv) SCENARIOS_CSV="${2:?}"; shift 2 ;;
     -p|--provider) QAT_BENCH_PROVIDER="${2:?}"; export QAT_BENCH_PROVIDER; shift 2 ;;
-    --skip-deploy) SKIP_DEPLOY=1; shift ;;
     --skip-tests) SKIP_TESTS=1; shift ;;
     -*)
       echo "unknown option: $1" >&2
@@ -123,19 +123,36 @@ print_scenarios_table "$SCENARIOS_CSV"
 export QAT_BENCH_INVENTORY="${QAT_BENCH_INVENTORY:-$(resolved_inventory_path)}"
 INV_ABS="${QAT_BENCH_ROOT}/ansible/${QAT_BENCH_INVENTORY}"
 if [[ ! -f "$INV_ABS" ]]; then
-  echo "ERROR: inventory not found: ${INV_ABS} (run provision-infrastructure.sh or set QAT_BENCH_INVENTORY)" >&2
+  echo "ERROR: inventory not found: ${INV_ABS} (run ./scripts/terraform/render-ansible-inventory.sh libvirt|aws, or provision-infrastructure.sh, or set QAT_BENCH_INVENTORY)" >&2
   exit 1
 fi
 
 load_benchmark_inventory || exit 1
 export QAT_BENCH_PROVIDER="${BENCH_PROVIDER:-${QAT_BENCH_PROVIDER:-libvirt}}"
 
+QAT_BENCH_BENCH_SERVER_VARS_JSON=""
+cleanup_bench_server_vars_json() {
+  if [[ -n "${QAT_BENCH_BENCH_SERVER_VARS_JSON:-}" && -f "${QAT_BENCH_BENCH_SERVER_VARS_JSON}" ]]; then
+    rm -f "${QAT_BENCH_BENCH_SERVER_VARS_JSON}"
+  fi
+}
+trap cleanup_bench_server_vars_json EXIT
+if command -v ansible-inventory >/dev/null 2>&1; then
+  _bench_vars_tmp=$(mktemp)
+  if QAT_BENCH_ROOT="${QAT_BENCH_ROOT}" python3 "${SCRIPT_DIR}/inventory_from_ansible.py" "${QAT_BENCH_INVENTORY}" --bench-server-vars-json >"${_bench_vars_tmp}" 2>/dev/null; then
+    QAT_BENCH_BENCH_SERVER_VARS_JSON="${_bench_vars_tmp}"
+    export QAT_BENCH_BENCH_SERVER_VARS_JSON
+  else
+    rm -f "${_bench_vars_tmp}"
+  fi
+fi
+
 SERVER_ADDR=""
 WRK_TARGET="${WRK_SSH:-}"
 if [[ "$SKIP_TESTS" != "1" ]]; then
+  # Optional: TCP address for openssl s_client -connect (default: hostname from target_url). Ping always uses URL host.
   SERVER_ADDR="${SERVER:-${BENCH_SERVER_IP:-}}"
-  [[ -n "${SERVER_ADDR}" ]] || { echo "ERROR: bench-server ansible_host missing from inventory (or set SERVER)" >&2; exit 1; }
-  [[ -n "${BENCH_VM_DOMAIN:-}" ]] || { echo "ERROR: qatbench_vm_domain (or aws domain) missing from inventory — needed for scenarios.csv target_url" >&2; exit 1; }
+  # target_url may use Jinja2 / FQDN vars only; domain is not always required.
   if [[ -z "$WRK_TARGET" && -n "${BENCH_CLIENT_USER:-}" && -n "${BENCH_CLIENT_IP:-}" ]]; then
     WRK_TARGET="${BENCH_CLIENT_USER}@${BENCH_CLIENT_IP}"
   fi
@@ -148,6 +165,7 @@ fi
 # Remote script on bench-client (stdin to ssh bash -s).
 CLIENT_TESTS=$(cat <<'EOS'
 set -euo pipefail
+echo "[vm-test:client] remote script started"
 URL="${TARGET_URL:?}"
 CONNECT_ADDR="${CONNECT_ADDR:-}"
 
@@ -155,22 +173,39 @@ HOST="${URL#*://}"
 HOST="${HOST%%/*}"
 HOST="${HOST%%:*}"
 
-if [[ -n "${CONNECT_ADDR}" ]]; then
-  echo "[vm-test:client] --- ping -> ${CONNECT_ADDR} ---"
-  if ping -c 3 -W 2 "${CONNECT_ADDR}" 2>/dev/null; then
+# openssl TCP connect: optional CONNECT_ADDR (server IP) else URL hostname (same as curl/wrk).
+TLS_CONNECT="${CONNECT_ADDR:-$HOST}"
+
+# Plain HTTP scenarios: do not probe :443 with openssl (s_client can hang waiting on TLS).
+IS_HTTP_ONLY=0
+[[ "${URL}" == http://* ]] && IS_HTTP_ONLY=1
+
+if [[ -n "${HOST}" ]]; then
+  echo "[vm-test:client] --- ping -> ${HOST} (URL host) ---"
+  if ping -c 1 -W 2 "${HOST}" 2>/dev/null; then
     :
   else
     echo "[vm-test:client] ping failed or blocked (continuing)"
   fi
+else
+  echo "[vm-test:client] --- ping skipped (no host in URL) ---"
+fi
 
-  echo "[vm-test:client] --- openssl s_client (SNI=${HOST} -> ${CONNECT_ADDR}:443) ---"
+if [[ "${IS_HTTP_ONLY}" == "1" ]]; then
+  echo "[vm-test:client] --- openssl skipped (http:// URL — not a TLS hop) ---"
+elif [[ -n "${TLS_CONNECT}" ]]; then
+  echo "[vm-test:client] --- openssl s_client (SNI=${HOST} -> ${TLS_CONNECT}:443) ---"
   if command -v openssl >/dev/null 2>&1; then
-    echo | openssl s_client -connect "${CONNECT_ADDR}:443" -servername "${HOST}" -brief 2>/dev/null | head -8 || echo "[vm-test:client] openssl: no TLS on 443 or connection failed (non-fatal for HTTP-only routes)"
+    if command -v timeout >/dev/null 2>&1; then
+      echo | timeout 8 openssl s_client -connect "${TLS_CONNECT}:443" -servername "${HOST}" -brief 2>/dev/null | head -8 || echo "[vm-test:client] openssl: timeout or no TLS on 443 (non-fatal)"
+    else
+      echo | openssl s_client -connect "${TLS_CONNECT}:443" -servername "${HOST}" -brief 2>/dev/null | head -8 || echo "[vm-test:client] openssl: no TLS on 443 or connection failed (non-fatal)"
+    fi
   else
     echo "[vm-test:client] openssl not installed"
   fi
 else
-  echo "[vm-test:client] --- ping/openssl skipped (no CONNECT_ADDR) ---"
+  echo "[vm-test:client] --- openssl skipped (no URL host and no CONNECT_ADDR) ---"
 fi
 
 echo "[vm-test:client] --- curl -> ${URL} ---"
@@ -182,9 +217,45 @@ elif [[ "${WRK_RUN_EFFECTIVE:-0}" != "1" ]]; then
   echo "[vm-test:client] wrk skipped (WRK_RUN=${WRK_RUN_EFFECTIVE})"
 elif command -v wrk >/dev/null 2>&1; then
   echo "[vm-test:client] --- wrk ---"
-  wrk -t"${WRK_THREADS}" -c"${WRK_CONNECTIONS}" -d"${WRK_DURATION}s" --latency \
-    -H "Connection: close" \
+  # Pin wrk to as many CPUs as possible, capped by WRK_THREADS.
+  cpu_count=""
+  if command -v nproc >/dev/null 2>&1; then
+    cpu_count="$(nproc --all 2>/dev/null || nproc 2>/dev/null || true)"
+  fi
+  if [[ -z "${cpu_count}" ]]; then
+    cpu_count="$(getconf _NPROCESSORS_ONLN 2>/dev/null || true)"
+  fi
+  if [[ -z "${cpu_count}" ]] || ! [[ "${cpu_count}" =~ ^[0-9]+$ ]] || [[ "${cpu_count}" -lt 1 ]]; then
+    cpu_count=1
+  fi
+
+  wrk_threads="${WRK_THREADS:-1}"
+  if [[ -z "${wrk_threads}" ]] || ! [[ "${wrk_threads}" =~ ^[0-9]+$ ]] || [[ "${wrk_threads}" -lt 1 ]]; then
+    wrk_threads=1
+  fi
+
+  pin_count="${wrk_threads}"
+  if [[ "${pin_count}" -gt "${cpu_count}" ]]; then
+    pin_count="${cpu_count}"
+  fi
+
+  WRK_CMD=(wrk -t"${WRK_THREADS}" -c"${WRK_CONNECTIONS}" -d"${WRK_DURATION}s" --latency
+    -H "Connection: close"
     "${URL}"
+  )
+
+  if command -v taskset >/dev/null 2>&1; then
+    if [[ "${pin_count}" -le 1 ]]; then
+      echo "[vm-test:client] wrk cpu pinning: taskset -c 0"
+      taskset -c 0 "${WRK_CMD[@]}"
+    else
+      echo "[vm-test:client] wrk cpu pinning: taskset -c 0-$((pin_count - 1)) (client_cpus=${cpu_count}, wrk_threads=${wrk_threads})"
+      taskset -c "0-$((pin_count - 1))" "${WRK_CMD[@]}"
+    fi
+  else
+    echo "[vm-test:client] wrk cpu pinning: taskset not installed (client_cpus=${cpu_count}, wrk_threads=${wrk_threads})"
+    "${WRK_CMD[@]}"
+  fi
 else
   echo "[vm-test:client] wrk not installed on client; install wrk or set SKIP_WRK=1" >&2
   exit 1
@@ -207,7 +278,7 @@ for rid in "${RUN_IDS[@]}"; do
   wrk_threads=$(scenario_csv_get "$SCENARIOS_CSV" "$rid" wrk_threads)
   wrk_connections=$(scenario_csv_get "$SCENARIOS_CSV" "$rid" wrk_connections)
   wrk_duration=$(scenario_csv_get "$SCENARIOS_CSV" "$rid" wrk_duration_sec)
-  target_url=$(scenario_csv_target_url "$SCENARIOS_CSV" "$rid" "${BENCH_VM_DOMAIN}")
+  target_url=$(scenario_csv_target_url "$SCENARIOS_CSV" "$rid" "${QAT_BENCH_INVENTORY}")
 
   wrk_run_effective="${wrk_run}"
   if [[ -z "$wrk_run_effective" ]]; then
@@ -216,9 +287,6 @@ for rid in "${RUN_IDS[@]}"; do
 
   echo ""
   echo "======== scenario id=${rid} provider=${QAT_BENCH_PROVIDER} url=${target_url} wrk_run=${wrk_run_effective} wrk t=${wrk_threads} c=${wrk_connections} d=${wrk_duration}s ========"
-  if [[ "$SKIP_DEPLOY" != "1" ]]; then
-    ansible-playbook -i "${QAT_BENCH_INVENTORY}" playbooks/deploy_benchmark.yml
-  fi
   if [[ "$SKIP_TESTS" != "1" ]]; then
     printf '[vm-test] ssh %s scenario=%s url=%s\n' "${WRK_TARGET}" "${rid}" "${target_url}"
     ssh_tmp=$(mktemp)
@@ -227,6 +295,9 @@ for rid in "${RUN_IDS[@]}"; do
     ssh -o BatchMode=yes \
       -o StrictHostKeyChecking=no \
       -o UserKnownHostsFile=/dev/null \
+      -o GSSAPIAuthentication=no \
+      -o PreferredAuthentications=publickey \
+      -o ConnectTimeout=15 \
       "${WRK_TARGET}" \
       env TARGET_URL="${target_url}" \
       CONNECT_ADDR="${SERVER_ADDR}" \

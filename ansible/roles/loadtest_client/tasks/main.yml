@@ -19,6 +19,11 @@
 - name: Run update-ca-trust before remaining client setup
   ansible.builtin.meta: flush_handlers
 
+- name: Install taskset (util-linux) for CPU pinning
+  ansible.builtin.package:
+    name: util-linux
+    state: present
+
 # wrk Copr RPM needs libluajit-5.1.so.2; EPEL ships luajit for EL9 (not in BaseOS/AppStream).
 - name: Install EPEL release (luajit for wrk)
   ansible.builtin.dnf:

@@ -1,9 +1,14 @@
 ---
 galaxy_info:
   role_name: bind_server
+  author: qatbench
   description: Install BIND on the benchmark server and publish client, server, and *.apps zone records for HAProxy
+  license: MIT
+  min_ansible_version: "2.15"
   platforms:
     - name: EL
       versions:
         - "9"
 dependencies: []
+collections:
+  - ansible.posix

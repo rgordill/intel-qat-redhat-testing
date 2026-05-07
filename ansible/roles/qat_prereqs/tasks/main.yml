@@ -1,14 +1,64 @@
 ---
+- name: Apply Intel QAT kernel boot parameters (grubby + optional reboot)
+  ansible.builtin.import_tasks: kernel_cmdline.yml
+
 - name: Install QAT user-space packages
   ansible.builtin.dnf:
     name: "{{ qatbench_packages }}"
     state: present
 
-- name: Document Intel QAT guest steps
+- name: Install VFIO udev rules for QAT (group qat can use /dev/vfio/<n>)
   ansible.builtin.copy:
-    dest: /etc/qat-bench/README-intel-qat.txt
+    src: 60-qatbench-vfio-qat.rules
+    dest: /etc/udev/rules.d/60-qatbench-vfio-qat.rules
+    owner: root
+    group: root
     mode: "0644"
-    content: |
-      See https://intel.github.io/quickassist/qatlib/running_in_vm.html
-      On bare metal (c7i.metal-24xl): verify lspci, vfio/qat drivers, /etc/sysconfig/qat, qatmgr.
-      Run scripts/utils/gates.sh on the host after SSH (extend for QAT checks).
+  register: qatbench_qat_udev
+
+- name: Reload udev rules for VFIO
+  ansible.builtin.command:
+    argv:
+      - udevadm
+      - control
+      - --reload-rules
+  changed_when: true
+  when: qatbench_qat_udev is changed
+
+- name: Enable and start QAT userspace (qatmgr)
+  ansible.builtin.systemd:
+    name: qat.service
+    enabled: true
+    state: started
+
+- name: Restart QAT to recreate VFIO nodes with new udev permissions
+  ansible.builtin.systemd:
+    name: qat.service
+    state: restarted
+  when: qatbench_qat_udev is changed
+
+- name: Apply udev to existing VFIO devices
+  ansible.builtin.command:
+    argv:
+      - udevadm
+      - trigger
+      - --subsystem-match=vfio
+      - --action=change
+  changed_when: true
+  when: qatbench_qat_udev is changed
+
+- name: Ensure QAT bench documentation directory exists
+  ansible.builtin.file:
+    path: /etc/qat-bench
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Document Intel QAT guest steps (IOMMU / vfio-pci.ids / tests)
+  ansible.builtin.template:
+    src: README-intel-qat.txt.j2
+    dest: /etc/qat-bench/README-intel-qat.txt
+    owner: root
+    group: root
+    mode: "0644"

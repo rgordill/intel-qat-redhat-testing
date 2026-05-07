@@ -7,8 +7,8 @@ prompt = no
 [req_dn]
 CN = *.apps.{{ certs_role_apps_domain }}
 
-# [v3_req]
-# subjectAltName = @san
-
-# [san]
-# DNS.1 = *.apps.{{ certs_role_apps_domain }}
+[v3_req]
+basicConstraints = CA:FALSE
+keyUsage = digitalSignature, keyEncipherment
+extendedKeyUsage = serverAuth
+subjectAltName = DNS:*.apps.{{ certs_role_apps_domain }}

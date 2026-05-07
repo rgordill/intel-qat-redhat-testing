@@ -1,0 +1,23 @@
+---
+# Example only. Prefer: ./scripts/terraform/render-ansible-inventory.sh libvirt|aws
+# → writes inventory/hosts.auto.yml (gitignored) from Terraform state.
+#
+# libvirt: ansible_user cloud-user; AWS: ec2-user, ansible_host = Elastic IP.
+# group_vars/all.yml sets provider; must match inventory all.vars.provider.
+all:
+  vars:
+    provider: libvirt
+    qatbench_vm_domain: "atik.demo"
+    qatbench_client_fqdn: "bench-client.{{ qatbench_vm_domain }}"
+    qatbench_server_fqdn: "bench-server.{{ qatbench_vm_domain }}"
+  children:
+    client:
+      hosts:
+        bench-client:
+          ansible_host: "{{ qatbench_client_fqdn }}"
+          ansible_user: cloud-user
+    server:
+      hosts:
+        bench-server:
+          ansible_host: "{{ qatbench_server_fqdn }}"
+          ansible_user: cloud-user

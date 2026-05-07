@@ -1,5 +1,21 @@
 # {{ ansible_managed }}
+{% if enable_qat | default(false) | bool %}
+[Unit]
+After=qat.service
+Wants=qat.service
+{% endif %}
+
 [Service]
-# Reset inherited ExecStart, then run from /var/lib/haproxy/conf (OpenShift-style paths).
+{% if enable_qat | default(false) | bool %}
+# VFIO + QAT user-space maps DMA; avoid EINVAL/ENOMEM from default memlock (errno=12 on VFIO_IOMMU_MAP_DMA).
+LimitMEMLOCK=infinity
+{% endif %}
+# Reset inherited ExecStart/ExecStartPre so checks and the daemon use the bench config path.
+ExecStartPre=
+{% if enable_qat | default(false) | bool %}
+# qatmgr finishes slightly after systemd marks qat.service active; qatengine during -c needs /dev/vfio/<n>.
+ExecStartPre=/bin/bash -c 'for i in $(seq 1 {{ haproxy_qat_vfio_wait_attempts }}); do ls /dev/vfio/[0-9]* >/dev/null 2>&1 && exit 0; sleep 1; done; echo "qatbench: timeout waiting for /dev/vfio/[0-9]* (qat.service)"; exit 1'
+{% endif %}
+ExecStartPre=/usr/sbin/haproxy -f {{ haproxy_conf_dir }}/haproxy.config -c -q $OPTIONS
 ExecStart=
 ExecStart=/usr/sbin/haproxy {{ haproxy_systemd_exec_start_opts }} -f {{ haproxy_conf_dir }}/haproxy.config -p {{ haproxy_run_dir }}/haproxy.pid -x {{ haproxy_run_dir }}/haproxy.sock

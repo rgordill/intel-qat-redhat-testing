@@ -37,7 +37,8 @@
 
 - name: Generate CA, nginx cert, and HAProxy wildcard PEM
   ansible.builtin.command:
-    cmd: "{{ certs_role_dir }}/generate-qatbench-certs.sh"
+    argv:
+      - "{{ certs_role_dir }}/generate-qatbench-certs.sh"
   changed_when: false
 
 - name: Remove legacy single server cert filenames (replaced by nginx.crt / haproxy-wildcard.*)

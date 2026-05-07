@@ -1,15 +1,35 @@
 ---
+# Marker from haproxy_qat_build (same path as that role's default): with enable_qat, distro haproxy is never installed; without QAT, skip distro dnf when marker exists (USE_ENGINE rebuild already on host).
+haproxy_qat_build_marker_path: /var/lib/qatbench/haproxy-use-engine-from-src
+
+# become_user: haproxy cannot always write ~/.ansible/tmp under /var/lib/haproxy (package layouts vary). Point Ansible remote_tmp at /tmp.
+haproxy_server_remote_tmp_as_haproxy: /tmp/.ansible-qatbench-haproxy
+
 # DNS zone for *.apps.<domain> routes (maps use regex; dots escaped in templates via replace).
 haproxy_domain: "{{ qatbench_vm_domain | default(aws.network.domain if (provider | default('libvirt')) == 'aws' else libvirt.network.domain, true) }}"
 
-# Config and runtime paths (systemd ExecStart uses these; matches paths inside files/conf/haproxy.config).
+# Config and runtime paths (systemd ExecStart uses these; matches paths inside templates/conf/haproxy.config.j2).
 haproxy_conf_dir: /var/lib/haproxy/conf
+
+# global nbthread: omit to use vcpus/2 (min 1, max 64; ansible_processor_vcpus fallback 4 if facts unavailable).
+# haproxy_nbthread: 8
+# When enable_qat: whether to put ssl-engine / ssl-mode-async in haproxy.config (qatengine init at start).
+# "auto" = only if /dev/vfio/<n> IOMMU group nodes exist (QAT VFs bound with vfio-pci). true/false to force.
+# Without devices, qatengine fails (ExecStartPre) with "QAT HW initialization Failed" / "No devices found".
+haproxy_ssl_engine_enabled: "auto"
+haproxy_qat_openssl_engine: qatengine
+haproxy_qat_ssl_engine_algo: ALL
+# systemd: seconds to wait for /dev/vfio/<n> after qat.service before HAProxy ExecStartPre -c (avoids qatengine race).
+haproxy_qat_vfio_wait_attempts: 90
 haproxy_run_dir: /var/lib/haproxy/run
 haproxy_router_certs_dir: /var/lib/haproxy/router/certs
 # CA PEM for backend TLS verify (re-encrypt); copied from certs role (ca.crt → nginx.pem).
 haproxy_router_cacerts_dir: /var/lib/haproxy/router/cacerts
 # RHEL HAProxy unit is typically Type=notify; -Ws enables systemd notify + watchdog.
 haproxy_systemd_exec_start_opts: "-Ws"
+
+# Pin RPM to HAProxy 2.8.x (OCP 4.20 ingress / RHEL 9.6 line). Use "haproxy" for unversioned AppStream latest.
+haproxy_dnf_package_spec: "haproxy-2.8*"
 
 # gomplate: https://github.com/hairyhenderson/gomplate — CLI for Go text/template (render vendor haproxy-config.template).
 haproxy_gomplate_install: true

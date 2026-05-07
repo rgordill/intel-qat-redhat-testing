@@ -10,6 +10,7 @@ libvirt_server:
 
 aws_server:
   hostname: "bench-server"
-  instance_type: c7i.large
+  # QAT needs bare metal with Intel QAT; non-QAT smoke uses a small instance (see enable_qat in group_vars/all.yml).
+  instance_type: "{{ 'c7i.metal-24xl' if enable_qat | default(false) | bool else 'c7i.large' }}"
   volume:
     size_gib: 30

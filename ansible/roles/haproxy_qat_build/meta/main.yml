@@ -1,0 +1,14 @@
+---
+galaxy_info:
+  role_name: haproxy_qat_build
+  author: qatbench
+  description: Rebuild RHEL HAProxy from Red Hat AppStream SRPM with USE_ENGINE=1 for OpenSSL engine (QAT) support.
+  license: MIT
+  platforms:
+    - name: EL
+      versions:
+        - "9"
+  min_ansible_version: "2.15"
+dependencies: []
+collections:
+  - community.general

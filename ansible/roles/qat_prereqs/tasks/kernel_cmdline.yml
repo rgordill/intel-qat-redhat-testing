@@ -1,0 +1,165 @@
+---
+# Intel QATlib system requirements (Linux boot parameters):
+#   intel_iommu=on
+#   vfio-pci.ids=<QAT VF DID> — discover via lspci (VF 8086:4941/4943/4945/4947)
+# https://intel.github.io/quickassist/qatlib/requirements.html
+- name: Configure kernel boot parameters for Intel QAT (RHEL family, grubby)
+  when: ansible_os_family == 'RedHat'
+  block:
+    - name: Discover Intel QAT Virtual Function PCI IDs (lspci)
+      ansible.builtin.shell: |
+        set -o pipefail
+        lspci -nn 2>/dev/null | grep -oE '8086:(4940|4941|4943|4945|4947)' | sort -u | paste -sd, -
+      args:
+        executable: /bin/bash
+      register: qat_lspci_qat_vf_csv
+      changed_when: false
+
+    - name: Resolve vfio-pci.ids string (override or lspci)
+      ansible.builtin.set_fact:
+        qat_discovered_vfio_pci_ids: "{{ (qat_prereqs_vfio_pci_ids_override | default('') | trim)
+          if (qat_prereqs_vfio_pci_ids_override | default('') | trim | length) > 0
+          else (qat_lspci_qat_vf_csv.stdout | default('') | trim) }}"
+
+    - name: Build list of discovered QAT VF vendor:device strings
+      ansible.builtin.set_fact:
+        qat_discovered_vfio_id_list: >-
+          {{
+            (qat_discovered_vfio_pci_ids.split(',')
+              | map('trim')
+              | reject('equalto', '')
+              | unique
+              | list)
+          }}
+
+    - name: Read default-kernel args from grub (grubby)
+      ansible.builtin.shell: |
+        set -o pipefail
+        grubby --info=DEFAULT 2>/dev/null | sed -n 's/^args="\(.*\)"$/\1/p' | head -1
+      args:
+        executable: /bin/bash
+      register: qat_grubby_args_raw
+      changed_when: false
+
+    - name: Decide if grubby needs intel_iommu or vfio-pci.ids updates
+      ansible.builtin.set_fact:
+        qat_boot_argstring: "{{ qat_grubby_args_raw.stdout | default('') | trim }}"
+        qat_needs_intel_iommu: >-
+          {{ 'intel_iommu=on' not in (qat_grubby_args_raw.stdout | default('') | trim) }}
+
+    - name: Check whether grub args already reference each required QAT VF id
+      ansible.builtin.shell: |
+        set -euo pipefail
+        boot="$QAT_BOOT"
+        for id in $QAT_IDS; do
+          [ -z "$id" ] && continue
+          case "$boot" in *"$id"*) ;; *) exit 1;; esac
+        done
+      environment:
+        QAT_BOOT: "{{ qat_boot_argstring }}"
+        QAT_IDS: "{{ qat_discovered_vfio_id_list | join(' ') }}"
+      register: qat_grub_refs_all_qat_vf_ids
+      changed_when: false
+      failed_when: false
+      when: qat_discovered_vfio_id_list | length > 0
+
+    - name: Set vfio-pci.ids grubby flag from discovery and grub args
+      ansible.builtin.set_fact:
+        qat_needs_vfio_pci_ids: >-
+          {{
+            (qat_discovered_vfio_id_list | length > 0)
+            and (
+              (qat_grub_refs_all_qat_vf_ids is not defined)
+              or (qat_grub_refs_all_qat_vf_ids.rc | default(1) != 0)
+            )
+          }}
+
+    - name: Show QAT IOMMU / VFIO requirements and grub drift (before grubby)
+      ansible.builtin.debug:
+        msg: |-
+          --- QAT kernel cmdline (qat_prereqs) — Intel QATlib ---
+          Required flags: intel_iommu=on ; vfio-pci.ids=<comma-separated 8086:494x VF IDs>
+          Docs: https://intel.github.io/quickassist/qatlib/requirements.html
+
+          VF PCI IDs source: {% if (qat_prereqs_vfio_pci_ids_override | default('') | trim | length) > 0 %}qat_prereqs_vfio_pci_ids_override{% else %}lspci -nn (8086:4940|4941|4943|4945|4947){% endif %}
+
+          Discovered / configured VF PCI IDs:
+            {{ qat_discovered_vfio_id_list | join(', ') if (qat_discovered_vfio_id_list | length > 0) else '(none — check QAT VFs / SR-IOV / lspci -nn)' }}
+
+          vfio-pci.ids string for grubby:
+            {{ qat_discovered_vfio_pci_ids if (qat_discovered_vfio_pci_ids | length > 0) else '(empty — grub vfio-pci.ids step skipped)' }}
+
+          Current grub default kernel args (grubby --info=DEFAULT), excerpt:
+            {{ (qat_boot_argstring[:280] ~ ('...' if qat_boot_argstring | length > 280 else '')) if qat_boot_argstring | length > 0 else '(empty)' }}
+
+          Tests indicating grub needs an update:
+            • intel_iommu=on missing from grub args → {{ 'YES, grubby will add intel_iommu=on' if qat_needs_intel_iommu else 'NO, already present' }}
+            • vfio-pci.ids missing any discovered VF ID → {{ 'YES, grubby will set vfio-pci.ids=' ~ qat_discovered_vfio_pci_ids if qat_needs_vfio_pci_ids else ('NO, grub already lists all discovered IDs' if (qat_discovered_vfio_id_list | length > 0) else 'N/A (no VF IDs discovered)') }}
+
+          Shell checks used: substring intel_iommu=on in grub args; for each VF ID, ID must appear inside vfio-pci.ids= (script rc 0 = OK).
+
+    - name: Ensure intel_iommu=on on all installed kernels (grubby)
+      ansible.builtin.command: grubby --update-kernel=ALL --args="intel_iommu=on"
+      register: qat_grubby_intel_iommu_cmd
+      when: qat_needs_intel_iommu | bool
+
+    - name: Ensure vfio-pci.ids lists discovered Intel QAT VFs (grubby)
+      ansible.builtin.command:
+        argv:
+          - grubby
+          - --update-kernel=ALL
+          - "--args=vfio-pci.ids={{ qat_discovered_vfio_pci_ids }}"
+      register: qat_grubby_vfio_ids_cmd
+      when: qat_needs_vfio_pci_ids | bool
+
+    - name: Reboot to apply new kernel boot parameters
+      ansible.builtin.reboot:
+        reboot_timeout: 900
+      when:
+        - qat_prereqs_reboot_after_kernel_cmdline_changes | bool
+        - (qat_grubby_intel_iommu_cmd is defined and qat_grubby_intel_iommu_cmd is changed) or
+          (qat_grubby_vfio_ids_cmd is defined and qat_grubby_vfio_ids_cmd is changed)
+
+    - name: Verify /proc/cmdline has intel_iommu=on (QATlib)
+      ansible.builtin.command: grep -E '(^|[ ])intel_iommu=on([ ]|$)' /proc/cmdline
+      register: qat_verify_intel_iommu
+      changed_when: false
+      failed_when: qat_verify_intel_iommu.rc != 0
+
+    - name: Verify /proc/cmdline lists each discovered QAT VF in vfio-pci.ids
+      ansible.builtin.shell: |
+        set -euo pipefail
+        line=$(grep -oE 'vfio-pci\.ids=[^ ]+' /proc/cmdline)
+        for id in $QAT_IDS; do
+          [ -z "$id" ] && continue
+          echo "$line" | grep -F "$id"
+        done
+      environment:
+        QAT_IDS: "{{ qat_discovered_vfio_id_list | join(' ') }}"
+      args:
+        executable: /bin/bash
+      register: qat_verify_vfio_ids
+      changed_when: false
+      failed_when: qat_verify_vfio_ids.rc != 0
+      when: qat_discovered_vfio_id_list | length > 0
+
+    - name: Capture /proc/cmdline after verification (for README / audit)
+      ansible.builtin.command: cat /proc/cmdline
+      register: qat_report_proc_cmdline
+      changed_when: false
+
+    - name: Show live kernel QAT cmdline summary (/proc/cmdline)
+      ansible.builtin.debug:
+        msg: |-
+          --- Live kernel (/proc/cmdline) — QAT checks passed ---
+          Full line:
+            {{ qat_report_proc_cmdline.stdout }}
+          Runtime tests already applied by this role:
+            • grep -E '(^|[ ])intel_iommu=on([ ]|$)' /proc/cmdline → OK
+            {% if qat_discovered_vfio_id_list | length > 0 %}
+            • Each ID in {{ qat_discovered_vfio_id_list | join(', ') }} appears in vfio-pci.ids=… → OK
+            {% else %}
+            • vfio-pci.ids VF enumeration skipped (no 8086:494x VF IDs from lspci this run).
+            {% endif %}
+
+          If hardware changes (new VFs), re-run this role: grub vfio-pci.ids must list every VF device ID present.

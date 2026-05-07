@@ -1,0 +1,4 @@
+# Benchmark: allow members of group "qat" (e.g. haproxy) to open VFIO IOMMU group
+# devices created for Intel QAT under /dev/vfio/<n> once qat.service (qatmgr) is running.
+# See: udevadm info -a -n /dev/vfio/<n> → SUBSYSTEM=="vfio", KERNEL=="<n>"
+SUBSYSTEM=="vfio", KERNEL=="[0-9]*", GROUP="qat", MODE="0660"

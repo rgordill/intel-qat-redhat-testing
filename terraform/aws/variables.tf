@@ -38,6 +38,18 @@ variable "qatbench_aws_public_subnet_cidr" {
   default = "10.47.1.0/24"
 }
 
+variable "qatbench_aws_private_subnet_cidr" {
+  type        = string
+  description = "Private subnet for secondary ENI (in-VPC benchmark traffic); primary ENI is public subnet + Elastic IP"
+  default     = "10.47.2.0/24"
+}
+
+variable "qatbench_route53_public_zone_id" {
+  type        = string
+  description = "Public hosted zone ID (optional). If empty, the zone is looked up by qatbench_domain name."
+  default     = ""
+}
+
 variable "qatbench_ssh_key_file" {
   type        = string
   description = "Path to SSH public key file for aws_key_pair (ec2-user login)"

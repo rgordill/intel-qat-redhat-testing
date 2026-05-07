@@ -1,6 +1,6 @@
 ---
 # Where infrastructure runs: libvirt | aws (terraform role; inventory can override).
-provider: libvirt
+provider: aws
 
 # Shared libvirt settings (per-VM: group_vars/client.yml / server.yml → libvirt_client / libvirt_server).
 libvirt:
@@ -21,9 +21,14 @@ aws:
   network:
     cidr: "10.47.0.0/16"
     subnet_cidr: "10.47.1.0/24"
-    domain: "instance.opentlc.com"
-  region: eu-east-2
-  ami_id: ""
+    private_subnet_cidr: "10.47.2.0/24"
+    domain: "sandbox1799.opentlc.com"
+  # Public Route53 zone must already exist; Terraform manages A records there (see terraform/aws/network.tf).
+  route53:
+    public_zone_id: ""
+  region: us-east-2
+# RHEL-9.6.0_HVM-20260303-x86_64-0-Access2-GP3
+  ami_id: 'ami-0d0554dfc17764295'
 
 domain: "{{ libvirt.network.domain if provider == 'libvirt' else aws.network.domain }}"
 
@@ -35,9 +40,5 @@ rhel_subscription_enabled: true
 
 haproxy_service: haproxy
 
-enable_qat: false
+enable_qat: true
 cert_dir: /etc/pki/qat-bench
-
-# BIND (bind_server + bind_client_resolver): libvirt only. AWS uses Route53 private zone — terraform/aws/network.tf.
-bind_server_enabled: true
-bind_client_use_server_dns: true

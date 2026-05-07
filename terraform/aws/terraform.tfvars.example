@@ -1,3 +1,6 @@
 # qatbench_ssh_key_file = "~/.ssh/id_ed25519.pub"
 # qatbench_aws_region = "eu-west-1"
-# qatbench_domain = "aws-bench.demo" # Route53 private zone + A records — see network.tf
+# qatbench_domain = "example.com" # Must match an existing public Route53 hosted zone name for public A records
+# qatbench_aws_public_subnet_cidr = "10.47.1.0/24"
+# qatbench_aws_private_subnet_cidr = "10.47.2.0/24"
+# qatbench_route53_public_zone_id = "" # optional; set to zone ID if lookup by qatbench_domain name fails

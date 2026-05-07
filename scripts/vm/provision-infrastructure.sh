@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Provision benchmark client + server VMs with Terraform (libvirt or AWS), render Ansible inventory.
-# Does not deploy HAProxy scenarios or run tests — use run-scenarios.sh for that.
+# Does not deploy Ansible roles or run wrk — use deploy_components.sh then run-scenarios.sh.
 #
 # Prerequisites: Terraform, provider plugins, Ansible + collections (see ansible/requirements.yml).
 # Libvirt: qemu:///system, base qcow2 path in group_vars / terraform variables.
@@ -119,7 +119,8 @@ if [[ "$PROVIDER" == "libvirt" ]]; then
 fi
 
 if [[ "$PROVIDER" == "aws" ]]; then
-  echo "[aws] Route53 private zone and A records are in terraform/aws/network.tf; use in-VPC DNS for FQDNs."
+  echo "[aws] Networking: primary ENI in public subnet + Elastic IP; secondary ENI in private subnet for in-VPC traffic."
+  echo "[aws] DNS: public Route53 zone — bench-client/bench-server → Elastic IPs; *.apps → server private ENI (terraform/aws/network.tf)."
 fi
 
 echo ""
@@ -128,5 +129,6 @@ echo "  export QAT_BENCH_PROVIDER=${QAT_BENCH_PROVIDER}"
 echo "  export QAT_BENCH_INVENTORY=${QAT_BENCH_INVENTORY}"
 echo ""
 echo "Next: cd ${QAT_BENCH_ROOT}/ansible && ansible-playbook -i \${QAT_BENCH_INVENTORY} playbooks/deploy_benchmark.yml"
-echo "Or:   ${SCRIPT_DIR}/run-scenarios.sh --list"
+echo "Or:   ${SCRIPT_DIR}/deploy_components.sh"
+echo "      ${SCRIPT_DIR}/run-scenarios.sh --list"
 echo "      ${SCRIPT_DIR}/run-scenarios.sh [scenario ids]"
