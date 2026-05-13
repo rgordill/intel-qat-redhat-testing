@@ -41,8 +41,8 @@ resource "libvirt_domain" "server" {
   type      = "kvm"
   memory    = var.qatbench_libvirt_server_memory_mib * 1024
   vcpu      = var.qatbench_libvirt_server_vcpu
-  running   = true
-  autostart = true
+  running   = false
+  autostart = false
 
   os = {
     type = "hvm"

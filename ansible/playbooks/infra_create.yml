@@ -1,9 +1,9 @@
 ---
 # Usage:
-#   ansible-playbook playbooks/terraform.yml
-#   ansible-playbook playbooks/terraform.yml -e provider=aws
+#   ansible-playbook playbooks/infra_create.yml
+#   ansible-playbook playbooks/infra_create.yml -e provider=aws
 # Requires: group_vars/all.yml + client.yml + server.yml
-- name: Provision infrastructure (Terraform)
+- name: Create infrastructure (Terraform)
   hosts: localhost
   connection: local
   gather_facts: false
@@ -14,3 +14,4 @@
     - ../group_vars/server.yml
   roles:
     - role: terraform
+      terraform_action: create

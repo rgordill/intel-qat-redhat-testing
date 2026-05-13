@@ -56,3 +56,30 @@
     name: wrk
     state: present
     update_cache: true
+
+# wrk opens one socket per connection (+ thread FDs, listen sockets, etc.).
+# With thousands of connections the default nofile (1024) causes "Too many open files".
+- name: Tune client kernel for up to 25 000 concurrent connections
+  ansible.posix.sysctl:
+    name: "{{ item.key }}"
+    value: "{{ item.value }}"
+    sysctl_set: true
+    state: present
+    reload: true
+  loop:
+    - { key: fs.file-max, value: "1048576" }
+    # Widen ephemeral port range (default 32768-60999 ≈ 28 k; wrk + TIME_WAIT can exhaust it).
+    - { key: net.ipv4.ip_local_port_range, value: "1024 65535" }
+    # Let the kernel reuse TIME_WAIT sockets for new outgoing connections (safe for clients).
+    - { key: net.ipv4.tcp_tw_reuse, value: "1" }
+    - { key: net.core.somaxconn, value: "65535" }
+
+- name: Raise per-user nofile limits for SSH / wrk sessions
+  ansible.builtin.copy:
+    dest: /etc/security/limits.d/99-qatbench-nofile.conf
+    content: |
+      * soft nofile 1048576
+      * hard nofile 1048576
+    owner: root
+    group: root
+    mode: "0644"

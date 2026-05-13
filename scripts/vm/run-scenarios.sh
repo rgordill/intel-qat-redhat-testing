@@ -166,6 +166,11 @@ fi
 CLIENT_TESTS=$(cat <<'EOS'
 set -euo pipefail
 echo "[vm-test:client] remote script started"
+
+# Raise FD limit for this session (wrk opens one socket per connection).
+ulimit -n 1048576 2>/dev/null || ulimit -n "$(ulimit -Hn)" 2>/dev/null || true
+echo "[vm-test:client] ulimit -n (nofile): $(ulimit -n)"
+
 URL="${TARGET_URL:?}"
 CONNECT_ADDR="${CONNECT_ADDR:-}"
 
@@ -239,7 +244,13 @@ elif command -v wrk >/dev/null 2>&1; then
     pin_count="${cpu_count}"
   fi
 
-  WRK_CMD=(wrk -t"${WRK_THREADS}" -c"${WRK_CONNECTIONS}" -d"${WRK_DURATION}s" --latency
+  wrk_timeout="${WRK_TIMEOUT:-30}"
+  if [[ -z "${wrk_timeout}" ]] || ! [[ "${wrk_timeout}" =~ ^[0-9]+$ ]] || [[ "${wrk_timeout}" -lt 1 ]]; then
+    wrk_timeout=30
+  fi
+
+  WRK_CMD=(wrk -t"${WRK_THREADS}" -c"${WRK_CONNECTIONS}" -d"${WRK_DURATION}s"
+    --timeout "${wrk_timeout}s" --latency
     -H "Connection: close"
     "${URL}"
   )
@@ -268,7 +279,7 @@ export ANSIBLE_CONFIG="${QAT_BENCH_ROOT}/ansible/ansible.cfg"
 
 if [[ "$SKIP_TESTS" != "1" ]]; then
   printf '%s\n' \
-    "timestamp_utc,scenario_id,target_url,provider,wrk_run,wrk_threads,wrk_connections,wrk_duration_sec,requests_per_sec,transfer_per_sec,total_requests,wrk_actual_sec,latency_avg_ms,latency_stdev_ms,latency_max_ms,socket_errors,status" \
+    "timestamp_utc,scenario_id,target_url,provider,wrk_run,wrk_threads,wrk_connections,wrk_duration_sec,wrk_timeout_sec,requests_per_sec,transfer_per_sec,total_requests,wrk_actual_sec,latency_avg_ms,latency_stdev_ms,latency_max_ms,socket_errors,status" \
     >"$RESULT_CSV"
   echo "[run-scenarios] results -> ${RESULT_CSV}"
 fi
@@ -278,6 +289,7 @@ for rid in "${RUN_IDS[@]}"; do
   wrk_threads=$(scenario_csv_get "$SCENARIOS_CSV" "$rid" wrk_threads)
   wrk_connections=$(scenario_csv_get "$SCENARIOS_CSV" "$rid" wrk_connections)
   wrk_duration=$(scenario_csv_get "$SCENARIOS_CSV" "$rid" wrk_duration_sec)
+  wrk_timeout=$(scenario_csv_get "$SCENARIOS_CSV" "$rid" wrk_timeout_sec 2>/dev/null || true)
   target_url=$(scenario_csv_target_url "$SCENARIOS_CSV" "$rid" "${QAT_BENCH_INVENTORY}")
 
   wrk_run_effective="${wrk_run}"
@@ -286,7 +298,7 @@ for rid in "${RUN_IDS[@]}"; do
   fi
 
   echo ""
-  echo "======== scenario id=${rid} provider=${QAT_BENCH_PROVIDER} url=${target_url} wrk_run=${wrk_run_effective} wrk t=${wrk_threads} c=${wrk_connections} d=${wrk_duration}s ========"
+  echo "======== scenario id=${rid} provider=${QAT_BENCH_PROVIDER} url=${target_url} wrk_run=${wrk_run_effective} wrk t=${wrk_threads} c=${wrk_connections} d=${wrk_duration}s timeout=${wrk_timeout:-30}s ========"
   if [[ "$SKIP_TESTS" != "1" ]]; then
     printf '[vm-test] ssh %s scenario=%s url=%s\n' "${WRK_TARGET}" "${rid}" "${target_url}"
     ssh_tmp=$(mktemp)
@@ -303,6 +315,7 @@ for rid in "${RUN_IDS[@]}"; do
       CONNECT_ADDR="${SERVER_ADDR}" \
       WRK_RUN_EFFECTIVE="${wrk_run_effective}" \
       WRK_THREADS="${wrk_threads}" WRK_CONNECTIONS="${wrk_connections}" WRK_DURATION="${wrk_duration}" \
+      WRK_TIMEOUT="${wrk_timeout}" \
       SKIP_WRK="${SKIP_WRK:-0}" \
       bash -s <<<"${CLIENT_TESTS}" >"$ssh_tmp" 2>&1 || ssh_rc=$?
     ssh_text=$(cat "$ssh_tmp")
@@ -314,7 +327,7 @@ for rid in "${RUN_IDS[@]}"; do
       st=ssh_failed
     fi
     {
-      printf '%s,%s,%s,%s,%s,%s,%s,%s' \
+      printf '%s,%s,%s,%s,%s,%s,%s,%s,%s' \
         "$ts" \
         "$(csv_field "$rid")" \
         "$(csv_field "$target_url")" \
@@ -322,7 +335,8 @@ for rid in "${RUN_IDS[@]}"; do
         "$wrk_run" \
         "$wrk_threads" \
         "$wrk_connections" \
-        "$wrk_duration"
+        "$wrk_duration" \
+        "$wrk_timeout"
       printf ',%s,%s,%s,%s,%s,%s,%s,%s,%s\n' \
         "${req:-}" \
         "${trans:-}" \

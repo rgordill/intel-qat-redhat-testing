@@ -13,3 +13,17 @@ qatbench_packages:
 # vfio-pci.ids is built from lspci for QAT VFs (8086:4940|4941|4943|4945|4947); override below to skip discovery.
 qat_prereqs_vfio_pci_ids_override: ""
 qat_prereqs_reboot_after_kernel_cmdline_changes: true
+
+# /etc/sysconfig/qat — managed-mode configuration.
+# https://intel.github.io/quickassist/qatlib/configuration.html
+#
+# POLICY controls how many VFs qatmgr hands to each process:
+#   0     — one VF from *each* PF per process (greedy; e.g. 4 VFs on a 4-PF host).
+#   N     — exactly N VFs per process, round-robin across PFs.
+#   "auto" (this role) — dynamically set to half of total VFs (num_PFs * 8).
+qat_prereqs_policy: "auto"
+
+# ServicesEnabled — which services the kernel driver exposes on every PF.
+# For TLS offload (HAProxy + qatengine): "sym;asym" dedicates all 8 AEs to crypto.
+# Leave empty/"" to keep the kernel default (even PFs sym;asym, odd PFs dc).
+qat_prereqs_services_enabled: "sym;asym"

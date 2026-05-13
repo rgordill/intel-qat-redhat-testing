@@ -4,6 +4,40 @@
     name: nginx
     state: present
 
+# HAProxy + nginx together can hold many thousands of FDs; default systemd/kernel limits are too low.
+- name: Tune server kernel for high connection counts
+  ansible.posix.sysctl:
+    name: "{{ item.key }}"
+    value: "{{ item.value }}"
+    sysctl_set: true
+    state: present
+    reload: true
+  loop:
+    - { key: fs.file-max, value: "1048576" }
+    # listen() backlog ceiling — HAProxy bind and nginx listen default to kernel somaxconn.
+    - { key: net.core.somaxconn, value: "65535" }
+    # SYN queue depth before the kernel starts dropping SYNs under burst.
+    - { key: net.ipv4.tcp_max_syn_backlog, value: "65535" }
+
+- name: Ensure nginx systemd drop-in directory exists
+  ansible.builtin.file:
+    path: /etc/systemd/system/nginx.service.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Raise nginx LimitNOFILE to match worker_connections
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/nginx.service.d/qatbench-nofile.conf
+    content: |
+      [Service]
+      LimitNOFILE=200000
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload nginx
+
 - name: Deploy nginx benchmark config
   ansible.builtin.template:
     src: nginx.conf.j2

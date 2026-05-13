@@ -69,8 +69,13 @@ defaults
   timeout tunnel 1h
 
   
+frontend prometheus
+  bind :8405
+  mode http
+  http-request use-service prometheus-exporter
 
-  frontend public
+
+frontend public
     
   bind :80
   mode http

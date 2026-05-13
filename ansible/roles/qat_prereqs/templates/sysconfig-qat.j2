@@ -1,0 +1,6 @@
+# {{ ansible_managed }}
+# https://intel.github.io/quickassist/qatlib/configuration.html
+POLICY={{ qat_effective_policy }}
+{% if qat_prereqs_services_enabled | default('') | length > 0 %}
+ServicesEnabled={{ qat_prereqs_services_enabled }}
+{% endif %}

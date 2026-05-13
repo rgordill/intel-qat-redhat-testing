@@ -20,6 +20,7 @@
       when: provider | default('libvirt') == 'libvirt'
     - role: certs
     - role: nginx_server_backend
+      tags: nginx 
     - role: qat_prereqs
       tags: qat
       when: enable_qat | bool
@@ -27,6 +28,11 @@
       tags: qat
       when: enable_qat | bool
     - role: haproxy_server
+    - role: netem
+      tags: netem
+    - role: qatbench_observability
+      tags:
+        - observability
 
 - name: Configure load client
   hosts: client

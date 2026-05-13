@@ -1,0 +1,49 @@
+---
+# Collect TLS/QAT observability bundle from benchmark server(s).
+# Run during sustained load for meaningful perf counters:
+#   ansible-playbook -i inventory/hosts.auto.yml playbooks/collect_observability.yml
+#
+# Optional:
+#   -e qatbench_perf_stat_seconds=30 -e qatbench_perf_record_enable=true
+- name: Collect observability snapshot on server
+  hosts: server
+  gather_facts: true
+  pre_tasks:
+    - name: Load optional vault
+      ansible.builtin.include_vars:
+        file: "{{ playbook_dir }}/../group_vars/vault.yml"
+      ignore_errors: true
+      run_once: true
+  vars_files:
+    - ../group_vars/all.yml
+    - ../group_vars/client.yml
+    - ../group_vars/server.yml
+  roles:
+    - role: qatbench_observability
+      tags:
+        - observability
+
+  tasks:
+    - name: Ensure controller artifacts directory exists
+      ansible.builtin.file:
+        path: "{{ playbook_dir }}/../artifacts/qatbench_observability"
+        state: directory
+        mode: "0755"
+      delegate_to: localhost
+      become: false
+      run_once: true
+
+    - name: Run observability snapshot (run under load in another terminal for perf deltas)
+      ansible.builtin.command: /usr/local/sbin/qatbench-observability-snapshot.sh
+      register: qatbench_obs_snap
+      changed_when: true
+
+    - name: Fetch latest.tar.gz to controller
+      ansible.builtin.fetch:
+        src: "{{ qatbench_observability_output_dir }}/latest.tar.gz"
+        dest: "{{ playbook_dir }}/../artifacts/qatbench_observability/{{ inventory_hostname }}-latest.tar.gz"
+        flat: true
+
+    - name: Show snapshot stdout tail
+      ansible.builtin.debug:
+        msg: "{{ qatbench_obs_snap.stdout_lines | default([]) }}"

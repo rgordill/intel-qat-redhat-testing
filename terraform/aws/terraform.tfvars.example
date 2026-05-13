@@ -4,3 +4,4 @@
 # qatbench_aws_public_subnet_cidr = "10.47.1.0/24"
 # qatbench_aws_private_subnet_cidr = "10.47.2.0/24"
 # qatbench_route53_public_zone_id = "" # optional; set to zone ID if lookup by qatbench_domain name fails
+# qatbench_aws_prometheus_exporter_cidr_blocks = ["203.0.113.10/32"] # or your Prometheus/VPN CIDR; default allows 0.0.0.0/0

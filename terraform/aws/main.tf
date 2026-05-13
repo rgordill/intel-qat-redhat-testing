@@ -69,6 +69,11 @@ resource "aws_instance" "client" {
   }
 }
 
+resource "aws_ec2_instance_state" "client_stopped" {
+  instance_id = aws_instance.client.id
+  state       = "stopped"
+}
+
 resource "aws_instance" "server" {
   ami           = local.ami
   instance_type = var.qatbench_aws_server_instance_type
@@ -94,4 +99,9 @@ resource "aws_instance" "server" {
     Name = "${var.qatbench_project_name}-server"
     Role = "server"
   }
+}
+
+resource "aws_ec2_instance_state" "server_stopped" {
+  instance_id = aws_instance.server.id
+  state       = "stopped"
 }

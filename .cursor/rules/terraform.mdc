@@ -12,23 +12,80 @@ When configuring Terraform through Ansible:
 - **DO** use the `cloud.terraform.terraform` Ansible module (from the `cloud.terraform` collection) to manage Terraform execution
 - **DO** use the `cloud.terraform.terraform_output` module to retrieve Terraform outputs
 
-### Example Usage
+### Role Structure: create / destroy actions
+
+A Terraform-managing role **must** expose a `terraform_action` variable (`create` or `destroy`) and provide two task entry-points — one for each action. The role's `tasks/main.yml` dispatches to the correct entry-point based on the variable. Two thin playbooks invoke the role with the matching action:
+
+| Playbook | Sets `terraform_action` to | Purpose |
+|---|---|---|
+| `playbooks/infra_create.yml` | `create` | Provision infrastructure |
+| `playbooks/infra_destroy.yml` | `destroy` | Tear down infrastructure |
+
+#### Role layout
+
+Provider-specific task files **must** use the `create_<provider>.yml` and `destroy_<provider>.yml` naming (one file per provider per action). Shared routing and cross-cutting steps (for example, printing outputs after create) live in `tasks/main.yml`.
+
+```
+roles/terraform/
+├── defaults/main.yml          # terraform_action: create (safe default)
+└── tasks/
+    ├── main.yml               # Validates action + provider; includes create_* / destroy_* files; shared follow-up tasks
+    ├── create_libvirt.yml     # state: present + terraform_output (libvirt)
+    ├── create_aws.yml         # state: present + terraform_output (AWS)
+    ├── destroy_libvirt.yml    # state: absent (libvirt)
+    └── destroy_aws.yml        # state: absent (AWS)
+```
+
+**Task names** in those files should use the same prefix for traceability (ansible-lint `name[casing]` requires an uppercase first character), for example `Create_libvirt apply Terraform stack`, `Destroy_aws destroy Terraform stack`, and `Create_include libvirt stack` for `include_tasks` steps in `main.yml`.
+
+#### Playbook examples
 
 ```yaml
-- name: Initialize and apply Terraform configuration
-  cloud.terraform.terraform:
-    project_path: "{{ playbook_dir }}/terraform"
-    state: present
-    force_init: true
-    variables:
-      vm_name: "{{ vm_name }}"
-      memory: "{{ vm_memory }}"
-      vcpu: "{{ vm_vcpu }}"
+# playbooks/infra_create.yml
+- name: Create infrastructure (Terraform)
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  become: false
+  vars_files:
+    - ../group_vars/all.yml
+    - ../group_vars/client.yml
+    - ../group_vars/server.yml
+  roles:
+    - role: terraform
+      terraform_action: create
 
-- name: Get Terraform outputs
-  cloud.terraform.terraform_output:
-    project_path: "{{ playbook_dir }}/terraform"
-  register: terraform_outputs
+# playbooks/infra_destroy.yml
+- name: Destroy infrastructure (Terraform)
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  become: false
+  vars_files:
+    - ../group_vars/all.yml
+    - ../group_vars/client.yml
+    - ../group_vars/server.yml
+  roles:
+    - role: terraform
+      terraform_action: destroy
+```
+
+#### Role tasks/main.yml example
+
+```yaml
+- name: Validate terraform_action
+  ansible.builtin.assert:
+    that:
+      - terraform_action in ['create', 'destroy']
+    fail_msg: "terraform_action must be 'create' or 'destroy', got {{ terraform_action }}"
+
+- name: Create_include libvirt stack
+  ansible.builtin.include_tasks: create_libvirt.yml
+  when: terraform_action == 'create' and terraform_target == 'libvirt'
+
+- name: Destroy_include aws stack
+  ansible.builtin.include_tasks: destroy_aws.yml
+  when: terraform_action == 'destroy' and terraform_target == 'aws'
 ```
 
 ### Variable Management

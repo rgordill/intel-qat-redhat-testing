@@ -61,7 +61,7 @@ Traffic flow (VM mode): **wrk → HAProxy (TLS or TCP as per scenario) → nginx
 # Deployment
 
 1. **Infrastructure:** `scripts/vm/provision-infrastructure.sh libvirt` or `… aws` runs Terraform and `scripts/terraform/render-ansible-inventory.sh` to produce `ansible/inventory/hosts.auto.yml`.
-2. **Configuration:** `ansible-playbook playbooks/terraform.yml` (with `-e provider=aws` when needed), then `ansible-playbook -i inventory/hosts.auto.yml playbooks/deploy_benchmark.yml` (or `scripts/vm/deploy_components.sh`).
+2. **Configuration:** `ansible-playbook playbooks/infra_create.yml` (with `-e provider=aws` when needed), then `ansible-playbook -i inventory/hosts.auto.yml playbooks/deploy_benchmark.yml` (or `scripts/vm/deploy_components.sh`). To tear down: `ansible-playbook playbooks/infra_destroy.yml`.
 3. **Tests:** `scripts/vm/run-scenarios.sh` executes the CSV matrix; `--list` prints the scenario table. OpenShift: set `INGRESS_HOST` and use `scripts/openshift/deploy-scenario.sh` / `deploy-and-test-all.sh`.
 
 Optional: `scripts/vm/generate-scenarios.sh` expands `scenarios.template.yaml` into additional CSV rows. Results are summarized with `scripts/vm/render-results-md.sh` into `scripts/vm/result.md`.

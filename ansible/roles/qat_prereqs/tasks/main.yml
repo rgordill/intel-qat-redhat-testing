@@ -25,17 +25,50 @@
   changed_when: true
   when: qatbench_qat_udev is changed
 
+- name: Count QAT Physical Functions for policy calculation
+  ansible.builtin.shell: |
+    set -o pipefail
+    lspci -nd 8086:4940 2>/dev/null | wc -l
+  args:
+    executable: /bin/bash
+  register: qat_pf_count_result
+  changed_when: false
+
+- name: Compute QAT policy value
+  ansible.builtin.set_fact:
+    qat_effective_policy: >-
+      {{ (qat_prereqs_policy | string | lower == 'auto')
+         | ternary((qat_pf_count_result.stdout | int) * 8,
+                   qat_prereqs_policy | int) }}
+
+- name: Configure /etc/sysconfig/qat (POLICY and ServicesEnabled)
+  ansible.builtin.template:
+    src: sysconfig-qat.j2
+    dest: /etc/sysconfig/qat
+    owner: root
+    group: root
+    mode: "0644"
+  register: qat_sysconfig
+
+- name: Show QAT sysconfig policy
+  ansible.builtin.debug:
+    msg: >-
+      /etc/sysconfig/qat — POLICY={{ qat_effective_policy }}
+      ({{ qat_pf_count_result.stdout | int }} PFs × 16 VFs = {{ (qat_pf_count_result.stdout | int) * 16 }} total;
+      half = {{ (qat_pf_count_result.stdout | int) * 8 }})
+      {{ ', ServicesEnabled=' ~ qat_prereqs_services_enabled if qat_prereqs_services_enabled | default('') | length > 0 else '' }}
+
 - name: Enable and start QAT userspace (qatmgr)
   ansible.builtin.systemd:
     name: qat.service
     enabled: true
     state: started
 
-- name: Restart QAT to recreate VFIO nodes with new udev permissions
+- name: Restart QAT to apply sysconfig or udev changes
   ansible.builtin.systemd:
     name: qat.service
     state: restarted
-  when: qatbench_qat_udev is changed
+  when: qatbench_qat_udev is changed or qat_sysconfig is changed
 
 - name: Apply udev to existing VFIO devices
   ansible.builtin.command:

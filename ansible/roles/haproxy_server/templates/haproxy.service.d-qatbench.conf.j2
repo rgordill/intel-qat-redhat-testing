@@ -6,9 +6,14 @@ Wants=qat.service
 {% endif %}
 
 [Service]
+# maxconn 50000 → each connection needs ≥2 FDs (client + backend); default systemd LimitNOFILE (4096) is far too low.
+LimitNOFILE=200000
 {% if enable_qat | default(false) | bool %}
 # VFIO + QAT user-space maps DMA; avoid EINVAL/ENOMEM from default memlock (errno=12 on VFIO_IOMMU_MAP_DMA).
 LimitMEMLOCK=infinity
+# qatengine opens /dev/vfio/<n> (owned root:qat, mode 0660); even when running as root,
+# systemd clears supplementary groups — add qat explicitly so the process can access VFIO.
+SupplementaryGroups=qat
 {% endif %}
 # Reset inherited ExecStart/ExecStartPre so checks and the daemon use the bench config path.
 ExecStartPre=

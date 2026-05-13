@@ -77,3 +77,9 @@ variable "qatbench_aws_root_volume_size_gib" {
   type    = number
   default = 30
 }
+
+variable "qatbench_aws_prometheus_exporter_cidr_blocks" {
+  type        = list(string)
+  description = "Allowed source CIDR blocks for Prometheus scraping the HAProxy exporter/stats endpoint on TCP/1936 (server public ENI)"
+  default     = ["0.0.0.0/0"]
+}

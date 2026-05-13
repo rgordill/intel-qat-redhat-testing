@@ -9,14 +9,34 @@
       - terraform_target in ['libvirt', 'aws']
     fail_msg: "provider must be 'libvirt' or 'aws', got {{ terraform_target }}"
 
-- name: Run Terraform stack (libvirt)
-  ansible.builtin.include_tasks: libvirt.yml
-  when: terraform_target == 'libvirt'
+- name: Validate terraform_action
+  ansible.builtin.assert:
+    that:
+      - terraform_action in ['create', 'destroy']
+    fail_msg: "terraform_action must be 'create' or 'destroy', got {{ terraform_action }}"
 
-- name: Run Terraform stack (AWS)
-  ansible.builtin.include_tasks: aws.yml
-  when: terraform_target == 'aws'
+- name: Create_include libvirt stack
+  ansible.builtin.include_tasks: create_libvirt.yml
+  when: terraform_action == 'create' and terraform_target == 'libvirt'
 
-- name: Show Terraform outputs
+- name: Create_include aws stack
+  ansible.builtin.include_tasks: create_aws.yml
+  when: terraform_action == 'create' and terraform_target == 'aws'
+
+- name: Create_show Terraform outputs
   ansible.builtin.debug:
     var: tf_out.outputs
+  when: terraform_action == 'create'
+
+- name: Destroy_include libvirt stack
+  ansible.builtin.include_tasks: destroy_libvirt.yml
+  when: terraform_action == 'destroy' and terraform_target == 'libvirt'
+
+- name: Destroy_include aws stack
+  ansible.builtin.include_tasks: destroy_aws.yml
+  when: terraform_action == 'destroy' and terraform_target == 'aws'
+
+- name: Destroy_confirm completion
+  ansible.builtin.debug:
+    msg: "Terraform {{ terraform_target }} infrastructure has been destroyed."
+  when: terraform_action == 'destroy'

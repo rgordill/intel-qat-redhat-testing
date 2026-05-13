@@ -1,0 +1,4 @@
+# Optional: for generate_scenarios.py / generate-scenarios.sh
+PyYAML>=6.0
+# scenarios.csv target_url Jinja2 rendering (inventory_from_ansible.py / scenario_csv.py render-target-url)
+Jinja2>=3.0

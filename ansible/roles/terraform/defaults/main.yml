@@ -1,4 +1,7 @@
 ---
+# create | destroy — set by the calling playbook (infra_create.yml / infra_destroy.yml)
+terraform_action: create
+
 # Which Terraform stack to apply: libvirt | aws
 qatbench_provider: libvirt
 

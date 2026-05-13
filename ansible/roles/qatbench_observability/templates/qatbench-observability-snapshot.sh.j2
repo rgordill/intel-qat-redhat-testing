@@ -1,0 +1,181 @@
+#!/bin/bash
+# {{ ansible_managed }}
+set -euo pipefail
+
+readonly STAT_SOCK="{{ qatbench_haproxy_stats_socket }}"
+readonly OUT_ROOT="{{ qatbench_observability_output_dir }}"
+readonly PERF_SEC={{ qatbench_perf_stat_seconds | int }}
+readonly BPFTRACE_SEC={{ qatbench_bpftrace_profile_seconds | int }}
+readonly PERF_RECORD={{ qatbench_perf_record_enable | bool | lower }}
+readonly PERF_RECORD_SEC={{ qatbench_perf_record_seconds | int }}
+
+TS="$(date -u +%Y%m%dT%H%M%SZ)"
+OUT="${OUT_ROOT}/run-${TS}"
+mkdir -p "$OUT"
+
+log() {
+  printf '%s\n' "$*" | tee -a "${OUT}/00-console.log"
+}
+
+log "=== qatbench observability snapshot ${TS} ==="
+
+{
+  echo "=== uname ==="
+  uname -a
+  echo "=== uptime ==="
+  uptime
+  echo "=== openssl ==="
+  openssl version -a || true
+} >>"${OUT}/01-host.txt"
+
+{
+  echo "=== cmdline ==="
+  cat /proc/cmdline || true
+  echo "=== tcp_available_ulp ==="
+  sysctl net.ipv4.tcp_available_ulp 2>/dev/null || true
+  sysctl net.ipv6.tcp_available_ulp 2>/dev/null || true
+} >>"${OUT}/02-network-kernel.txt"
+
+{
+  echo "=== rpm qat / haproxy ==="
+  for _p in haproxy openssl qatlib qatengine qatlib-service; do
+    rpm -q "${_p}" 2>/dev/null || echo "${_p}: not installed"
+  done
+  echo "=== haproxy -vv (engine) ==="
+  /usr/sbin/haproxy -vv 2>&1 | grep -iE 'openssl|engine|ssl|USE_' || true
+} >>"${OUT}/03-haproxy-binary.txt"
+
+{
+  echo "=== openssl engine qatengine ==="
+  openssl engine -c -t qatengine 2>&1 || openssl engine -c -t 2>&1 | head -80 || true
+} >>"${OUT}/04-openssl-engine.txt"
+
+{
+  echo "=== systemctl qat ==="
+  systemctl status qat.service --no-pager 2>&1 || true
+  echo "=== vfio nodes ==="
+  ls -la /dev/vfio/ 2>&1 || true
+  echo "=== lspci QAT ==="
+  lspci -nn 2>/dev/null | grep -iE 'quickassist|qat|4940|4941|4943|4945|4947' || true
+  echo "=== /proc/interrupts (qat/icp) ==="
+  grep -iE 'qat|icp|intel' /proc/interrupts 2>/dev/null | head -40 || true
+} >>"${OUT}/05-qat-runtime.txt"
+
+{
+  echo "=== QAT firmware counters (debugfs) ==="
+  if [[ -d /sys/kernel/debug/qat ]]; then
+    for dev in /sys/kernel/debug/qat/*/; do
+      devname="$(basename "${dev}")"
+      echo "--- ${devname} ---"
+      for f in fw_counters cnv_errors heartbeat transport_heartbeat; do
+        if [[ -f "${dev}/${f}" ]]; then
+          echo ">> ${f}:"
+          cat "${dev}/${f}" 2>/dev/null | head -80 || true
+        fi
+      done
+    done
+  else
+    echo "(debugfs qat tree not mounted or inaccessible)"
+  fi
+  echo "=== QAT sysfs telemetry ==="
+  for teldir in /sys/devices/pci*/*/telemetry; do
+    [[ -d "${teldir}" ]] || continue
+    devname="$(basename "$(dirname "${teldir}")")"
+    echo "--- ${devname} ---"
+    for f in "${teldir}"/*; do
+      [[ -f "$f" ]] || continue
+      fname="$(basename "$f")"
+      echo ">> ${fname}:"
+      cat "$f" 2>/dev/null | head -40 || true
+    done
+  done
+} >>"${OUT}/05b-qat-telemetry.txt"
+
+HP_PIDS="$(pidof haproxy 2>/dev/null || true)"
+{
+  echo "=== pidof haproxy === ${HP_PIDS}"
+  if [[ -n "${HP_PIDS}" ]]; then
+    tr ' ' '\n' <<<"${HP_PIDS}" | while read -r p; do
+      [[ -z "$p" ]] && continue
+      echo "--- pid ${p}: /proc/status ---"
+      cat "/proc/${p}/status" 2>/dev/null || true
+      echo "--- pid ${p}: /proc/sched ---"
+      cat "/proc/${p}/sched" 2>/dev/null | head -60 || true
+      echo "--- pid ${p}: stack maps (qat/ssl) ---"
+      cat "/proc/${p}/maps" 2>/dev/null | grep -iE 'qat|openssl|ssl' | head -40 || true
+    done
+  fi
+} >>"${OUT}/06-haproxy-process.txt"
+
+if [[ -S "${STAT_SOCK}" ]]; then
+  {
+    echo "=== show info ==="
+    echo "show info" | socat stdio "UNIX-CONNECT:${STAT_SOCK}" || true
+    echo "=== show pools ==="
+    echo "show pools" | socat stdio "UNIX-CONNECT:${STAT_SOCK}" || true
+    echo "=== show ssl stats (HAProxy 2.8+) ==="
+    echo "show ssl stats" | socat stdio "UNIX-CONNECT:${STAT_SOCK}" 2>&1 || true
+    echo "=== show stat (first 400 lines) ==="
+    echo "show stat" | socat stdio "UNIX-CONNECT:${STAT_SOCK}" 2>/dev/null | head -400 || true
+  } >>"${OUT}/07-haproxy-socket.txt"
+else
+  log "WARN: stats socket missing at ${STAT_SOCK}"
+fi
+
+{
+  for url in {% for u in qatbench_prometheus_urls %}"{{ u }}" {% endfor %}; do
+    echo "=== curl ${url} (first 300 lines, ssl-related grep) ==="
+    curl -fsS --max-time 3 "${url}" 2>&1 | head -300 || echo "(curl failed)"
+    curl -fsS --max-time 3 "${url}" 2>/dev/null | grep -iE 'ssl|tls|handshake|session|frontend' | head -120 || true
+  done
+} >>"${OUT}/08-prometheus-scrape.txt"
+
+if [[ -n "${HP_PIDS}" ]]; then
+  PERF_LIST="$(echo "${HP_PIDS}" | tr ' ' ',')"
+  log "Running perf stat for ${PERF_SEC}s on PID(s): ${PERF_LIST}"
+  perf stat -p "${PERF_LIST}" sleep "${PERF_SEC}" >>"${OUT}/09-perf-stat.txt" 2>&1 || log "WARN: perf stat failed (need root and perf_event_paranoid)"
+
+  FIRST_PID="$(echo "${HP_PIDS}" | awk '{print $1}')"
+  log "Running perf report snapshot (${PERF_SEC}s, -F 997) on pid ${FIRST_PID}"
+  SNAP_DATA="${OUT}/09b-perf-snap.data"
+  if perf record -F 997 -g --call-graph dwarf,16384 -p "${FIRST_PID}" -o "${SNAP_DATA}" -- sleep "${PERF_SEC}" >>"${OUT}/09b-perf-snap.log" 2>&1; then
+    perf report --stdio --no-children -i "${SNAP_DATA}" 2>/dev/null | head -600 >"${OUT}/09b-perf-report-snapshot.txt" || true
+    rm -f "${SNAP_DATA}"
+  else
+    log "WARN: perf report snapshot failed"
+  fi
+else
+  log "WARN: no haproxy PIDs; skipping perf stat"
+fi
+
+if [[ "${PERF_RECORD}" == "true" ]] && [[ -n "${HP_PIDS}" ]]; then
+  PERF_DATA="${OUT}/perf.data"
+  FIRST_PID="$(echo "${HP_PIDS}" | awk '{print $1}')"
+  log "Recording perf.data for ${PERF_RECORD_SEC}s on pid ${FIRST_PID}"
+  perf record -F 997 -g -p "${FIRST_PID}" -o "${PERF_DATA}" -- sleep "${PERF_RECORD_SEC}" >>"${OUT}/10-perf-record.log" 2>&1 || log "WARN: perf record failed"
+  if [[ -f "${PERF_DATA}" ]]; then
+    perf report --stdio -i "${PERF_DATA}" 2>/dev/null | head -400 >"${OUT}/10-perf-report-head.txt" || true
+  fi
+fi
+
+if [[ "${BPFTRACE_SEC}" -gt 0 ]] && [[ -n "${HP_PIDS}" ]] && command -v bpftrace >/dev/null 2>&1; then
+  FIRST_PID="$(echo "${HP_PIDS}" | awk '{print $1}')"
+  log "Running bpftrace ustack profile (${BPFTRACE_SEC}s) on pid ${FIRST_PID}"
+  BPFTRACE_MAP_KEYS_MAX=65536 timeout "$((BPFTRACE_SEC + 8))" bpftrace -e '
+    profile:hz:99 /pid == '"${FIRST_PID}"'/ { @[ustack(32)] = count(); }
+    interval:s:'"${BPFTRACE_SEC}"' { exit(); }
+  ' >>"${OUT}/11-bpftrace-profile.txt" 2>&1 || log "WARN: bpftrace ustack profile failed (rc=$?)"
+
+  log "Running bpftrace kstack+ustack profile (${BPFTRACE_SEC}s) on pid ${FIRST_PID}"
+  BPFTRACE_MAP_KEYS_MAX=65536 timeout "$((BPFTRACE_SEC + 8))" bpftrace -e '
+    profile:hz:99 /pid == '"${FIRST_PID}"'/ { @[kstack(16), ustack(32)] = count(); }
+    interval:s:'"${BPFTRACE_SEC}"' { exit(); }
+  ' >>"${OUT}/11b-bpftrace-kstack.txt" 2>&1 || log "WARN: bpftrace kstack+ustack failed (rc=$?)"
+fi
+
+ln -sfn "$OUT" "${OUT_ROOT}/latest"
+tar -czf "${OUT}.tar.gz" -C "${OUT_ROOT}" "run-${TS}"
+ln -sfn "${OUT}.tar.gz" "${OUT_ROOT}/latest.tar.gz"
+
+log "Done. Bundle: ${OUT}.tar.gz"
+log "Symlink: ${OUT_ROOT}/latest"

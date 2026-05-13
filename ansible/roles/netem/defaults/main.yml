@@ -1,0 +1,8 @@
+---
+# Network emulation on the loopback (HAProxy → nginx backend).
+# Applied via tc qdisc netem; requires no extra packages (iproute2 is part of RHEL).
+netem_enabled: false
+netem_interface: lo
+netem_delay_ms: 0
+netem_jitter_ms: 0
+netem_loss_percent: 0

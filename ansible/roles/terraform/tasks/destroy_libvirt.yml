@@ -1,8 +1,8 @@
 ---
-- name: Apply Terraform (libvirt)
+- name: Destroy_libvirt destroy Terraform stack
   cloud.terraform.terraform:
     project_path: "{{ qatbench_libvirt_project_path }}"
-    state: present
+    state: absent
     force_init: true
     variables:
       qatbench_ssh_key_file: "{{ libvirt.ssh.key_file | expanduser }}"
@@ -22,8 +22,3 @@
       qatbench_libvirt_server_mac: "{{ libvirt_server.mac }}"
       qatbench_libvirt_server_vcpu: "{{ libvirt_server.vcpu }}"
       qatbench_libvirt_server_memory_mib: "{{ libvirt_server.memory_mib }}"
-
-- name: Read Terraform outputs (libvirt)
-  cloud.terraform.terraform_output:
-    project_path: "{{ qatbench_libvirt_project_path }}"
-  register: tf_out

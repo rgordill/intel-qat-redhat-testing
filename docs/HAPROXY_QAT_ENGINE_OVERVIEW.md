@@ -135,4 +135,5 @@ With QAT, HAProxy is stopped before **`haproxy -c`** as root (VFIO nodes cannot 
 ## Related documentation
 
 - [HAPROXY_USE_ENGINE_BUILD.md](./HAPROXY_USE_ENGINE_BUILD.md) — manual SRPM procedure aligned with **`haproxy_qat_build`**.
+- [QAT_TLS_OBSERVABILITY_FINDINGS.md](./QAT_TLS_OBSERVABILITY_FINDINGS.md) — **`perf` / `bpftrace` / HAProxy metrics** automation and comparison workflow (`qatbench_observability` role, **`collect_observability.yml`**).
 - `ansible/roles/haproxy_qat_build/README.md` — variables, **`--start-at-task`** resume hint.

@@ -1,5 +1,5 @@
 ---
-- name: Apply Terraform (AWS)
+- name: Create_aws apply Terraform stack
   cloud.terraform.terraform:
     project_path: "{{ qatbench_aws_project_path }}"
     state: present
@@ -21,7 +21,7 @@
       qatbench_client_hostname: "{{ aws_client.hostname }}"
       qatbench_server_hostname: "{{ aws_server.hostname }}"
 
-- name: Read Terraform outputs (AWS)
+- name: Create_aws read Terraform outputs
   cloud.terraform.terraform_output:
     project_path: "{{ qatbench_aws_project_path }}"
   register: tf_out

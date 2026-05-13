@@ -1,0 +1,22 @@
+---
+- name: Destroy_aws destroy Terraform stack
+  cloud.terraform.terraform:
+    project_path: "{{ qatbench_aws_project_path }}"
+    state: absent
+    force_init: true
+    variables:
+      qatbench_ssh_key_file: "{{ libvirt.ssh.key_file | expanduser }}"
+      qatbench_domain: "{{ aws.network.domain }}"
+      qatbench_project_name: "{{ project_name }}"
+      qatbench_aws_region: "{{ aws.region }}"
+      qatbench_aws_vpc_cidr: "{{ aws.network.cidr }}"
+      qatbench_aws_public_subnet_cidr: "{{ aws.network.subnet_cidr | default(aws.network.public_subnet_cidr) }}"
+      qatbench_aws_private_subnet_cidr: "{{ aws.network.private_subnet_cidr | default('10.47.2.0/24') }}"
+      qatbench_route53_public_zone_id: "{{ (aws.route53 | default({})).public_zone_id | default('') }}"
+      qatbench_aws_ami_id: "{{ aws.ami_id }}"
+      qatbench_aws_client_instance_type: "{{ aws_client.instance_type }}"
+      qatbench_aws_server_instance_type: "{{ aws_server.instance_type }}"
+      qatbench_aws_root_volume_size_gib: >-
+        {{ [aws_client.volume.size_gib | int, aws_server.volume.size_gib | int] | max }}
+      qatbench_client_hostname: "{{ aws_client.hostname }}"
+      qatbench_server_hostname: "{{ aws_server.hostname }}"

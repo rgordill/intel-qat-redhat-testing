@@ -87,11 +87,11 @@ wait_libvirt_ssh_addrs() {
 }
 
 if [[ "${SKIP_TERRAFORM:-0}" != "1" ]]; then
-  echo "[${PROVIDER}] terraform apply via Ansible (playbooks/terraform.yml)"
+  echo "[${PROVIDER}] terraform apply via Ansible (playbooks/infra_create.yml)"
   (
     cd "${QAT_BENCH_ROOT}/ansible"
     export ANSIBLE_CONFIG="${QAT_BENCH_ROOT}/ansible/ansible.cfg"
-    ansible-playbook playbooks/terraform.yml -e "provider=${PROVIDER}"
+    ansible-playbook playbooks/infra_create.yml -e "provider=${PROVIDER}"
   )
 else
   echo "[${PROVIDER}] SKIP_TERRAFORM=1 — skipping terraform apply"

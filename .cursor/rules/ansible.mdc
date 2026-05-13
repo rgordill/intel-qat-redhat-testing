@@ -44,6 +44,18 @@
 - Keep handlers in `handlers/main.yml`
 - Split complex task files using `include_tasks` or `import_tasks`
 
+### Infrastructure roles (create / destroy pattern)
+
+Roles that manage infrastructure lifecycle (e.g. Terraform) **must** support both provisioning and teardown through an action variable, **not** by inlining tasks in a playbook.
+
+- The role exposes an action variable (e.g. `terraform_action`) with values `create` and `destroy`.
+- `tasks/main.yml` validates the action and provider, then includes exactly one provider file per run: `create_<provider>.yml` or `destroy_<provider>.yml` (for example `create_aws.yml`, `destroy_libvirt.yml`). Do not use generic filenames like `aws.yml` for infra lifecycle.
+- Two separate playbooks invoke the role with the corresponding action:
+  - `playbooks/infra_create.yml` — sets the action to `create`
+  - `playbooks/infra_destroy.yml` — sets the action to `destroy`
+
+This keeps all infrastructure logic inside the role and the playbooks thin. See `.cursor/rules/terraform.mdc` for the full pattern and examples.
+
 ## Variable Management
 
 - Store environment-specific variables in `group_vars/` and `host_vars/`

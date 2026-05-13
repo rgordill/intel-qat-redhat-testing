@@ -1,0 +1,28 @@
+---
+# TLS/QAT observability tooling (perf, bpftrace, HAProxy socket scrape).
+qatbench_observability_enabled: true
+
+qatbench_observability_packages:
+  - perf
+  - bpftrace
+  - socat
+  - curl
+  - procps-ng
+
+# Snapshot script output (timestamped subdirs + latest symlink).
+qatbench_observability_output_dir: /var/lib/qatbench/observability
+
+qatbench_haproxy_stats_socket: /var/lib/haproxy/run/haproxy.sock
+qatbench_prometheus_urls:
+  - "http://127.0.0.1:8405/metrics"
+  - "http://127.0.0.1:8405/"
+
+# Duration (seconds) for perf stat sample while script runs (run during load for meaningful deltas).
+qatbench_perf_stat_seconds: 15
+
+# bpftrace stack profile (seconds); collects user+kernel stacks for flame graphs. Set 0 to skip.
+qatbench_bpftrace_profile_seconds: 10
+
+# Large optional artifact — perf.data — kept off by default (enable for deep dives).
+qatbench_perf_record_enable: false
+qatbench_perf_record_seconds: 10

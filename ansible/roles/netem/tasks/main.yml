@@ -1,0 +1,35 @@
+---
+- name: Remove existing qdisc on {{ netem_interface }}
+  ansible.builtin.command:
+    cmd: tc qdisc del dev {{ netem_interface }} root
+  changed_when: false
+  failed_when: false
+
+- name: Build netem tc command
+  ansible.builtin.set_fact:
+    _netem_cmd: >-
+      tc qdisc add dev {{ netem_interface }} root netem
+      {% if netem_delay_ms | int > 0 %}
+      delay {{ netem_delay_ms }}ms
+      {% if netem_jitter_ms | int > 0 %} {{ netem_jitter_ms }}ms{% endif %}
+      {% endif %}
+      {% if netem_loss_percent | float > 0 %}
+      loss {{ netem_loss_percent }}%
+      {% endif %}
+  when: netem_enabled | bool
+
+- name: Apply netem qdisc on {{ netem_interface }}
+  ansible.builtin.command:
+    cmd: "{{ _netem_cmd }}"
+  changed_when: true
+  when: netem_enabled | bool
+
+- name: Show active qdisc
+  ansible.builtin.command:
+    cmd: tc qdisc show dev {{ netem_interface }}
+  register: _netem_show
+  changed_when: false
+
+- name: Display qdisc status
+  ansible.builtin.debug:
+    msg: "{{ _netem_show.stdout }}"

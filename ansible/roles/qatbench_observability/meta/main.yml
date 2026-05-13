@@ -1,0 +1,11 @@
+---
+galaxy_info:
+  role_name: qatbench_observability
+  description: Perf/eBPF/HAProxy snapshot tooling for QAT vs CPU TLS comparisons.
+  license: Apache-2.0
+  platforms:
+    - name: EL
+      versions:
+        - "9"
+
+dependencies: []

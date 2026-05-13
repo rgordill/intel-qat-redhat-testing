@@ -110,6 +110,14 @@ resource "aws_security_group" "bench" {
   }
 
   ingress {
+    description = "Prometheus scrape: HAProxy exporter/stats on TCP/1936 (server)"
+    from_port   = 8405
+    to_port     = 8405
+    protocol    = "tcp"
+    cidr_blocks = var.qatbench_aws_prometheus_exporter_cidr_blocks
+  }
+
+  ingress {
     description = "TCP within VPC (client to server for load tests, HAProxy, etc.)"
     from_port   = 1
     to_port     = 65535

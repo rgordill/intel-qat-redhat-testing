@@ -9,7 +9,7 @@
     - name: Discover Intel QAT Virtual Function PCI IDs (lspci)
       ansible.builtin.shell: |
         set -o pipefail
-        lspci -nn 2>/dev/null | grep -oE '8086:(4940|4941|4943|4945|4947)' | sort -u | paste -sd, -
+        lspci -nn 2>/dev/null | grep -oE '8086:(4941|4943|4945|4947)' | sort -u | paste -sd, -
       args:
         executable: /bin/bash
       register: qat_lspci_qat_vf_csv
@@ -112,13 +112,51 @@
       register: qat_grubby_vfio_ids_cmd
       when: qat_needs_vfio_pci_ids | bool
 
+    - name: Check running kernel for intel_iommu=on (/proc/cmdline)
+      ansible.builtin.command: grep -qE '(^|[ ])intel_iommu=on([ ]|$)' /proc/cmdline
+      register: qat_live_intel_iommu
+      changed_when: false
+      failed_when: false
+
+    - name: Check running kernel for all discovered QAT VF IDs (/proc/cmdline)
+      ansible.builtin.shell: |
+        set -euo pipefail
+        line=$(grep -oE 'vfio-pci\.ids=[^ ]+' /proc/cmdline)
+        for id in $QAT_IDS; do
+          [ -z "$id" ] && continue
+          echo "$line" | grep -qF "$id" || exit 1
+        done
+      environment:
+        QAT_IDS: "{{ qat_discovered_vfio_id_list | join(' ') }}"
+      args:
+        executable: /bin/bash
+      register: qat_live_vfio_ids
+      changed_when: false
+      failed_when: false
+      when: qat_discovered_vfio_id_list | length > 0
+
+    - name: Decide if a reboot is actually needed
+      ansible.builtin.set_fact:
+        qat_reboot_needed: >-
+          {{
+            qat_prereqs_reboot_after_kernel_cmdline_changes | bool
+            and (
+              (qat_grubby_intel_iommu_cmd is defined and qat_grubby_intel_iommu_cmd is changed)
+              or (qat_grubby_vfio_ids_cmd is defined and qat_grubby_vfio_ids_cmd is changed)
+            )
+            and (
+              (qat_live_intel_iommu.rc | default(1) != 0)
+              or (
+                qat_discovered_vfio_id_list | length > 0
+                and (qat_live_vfio_ids.rc | default(1) != 0)
+              )
+            )
+          }}
+
     - name: Reboot to apply new kernel boot parameters
       ansible.builtin.reboot:
         reboot_timeout: 900
-      when:
-        - qat_prereqs_reboot_after_kernel_cmdline_changes | bool
-        - (qat_grubby_intel_iommu_cmd is defined and qat_grubby_intel_iommu_cmd is changed) or
-          (qat_grubby_vfio_ids_cmd is defined and qat_grubby_vfio_ids_cmd is changed)
+      when: qat_reboot_needed | bool
 
     - name: Verify /proc/cmdline has intel_iommu=on (QATlib)
       ansible.builtin.command: grep -E '(^|[ ])intel_iommu=on([ ]|$)' /proc/cmdline

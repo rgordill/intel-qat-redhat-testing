@@ -13,4 +13,5 @@ crash.log
 *.ansible
 **/__pycache__
 scripts/vm/result.csv
+ansible/artifacts/qatbench_observability/*.tar.gz
 *~

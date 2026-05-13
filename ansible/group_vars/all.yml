@@ -22,7 +22,7 @@ aws:
     cidr: "10.47.0.0/16"
     subnet_cidr: "10.47.1.0/24"
     private_subnet_cidr: "10.47.2.0/24"
-    domain: "sandbox1799.opentlc.com"
+    domain: "sandbox1131.opentlc.com"
   # Public Route53 zone must already exist; Terraform manages A records there (see terraform/aws/network.tf).
   route53:
     public_zone_id: ""
@@ -42,3 +42,9 @@ haproxy_service: haproxy
 
 enable_qat: true
 cert_dir: /etc/pki/qat-bench
+
+# Network emulation on loopback (HAProxy → nginx). Uses tc netem (iproute2, no extra pkgs).
+netem_enabled: true
+netem_delay_ms: 5
+netem_jitter_ms: 1
+netem_loss_percent: 0

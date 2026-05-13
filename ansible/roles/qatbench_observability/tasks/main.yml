@@ -1,0 +1,24 @@
+---
+- name: Install observability packages (perf, bpftrace, socat, curl)
+  ansible.builtin.dnf:
+    name: "{{ qatbench_observability_packages }}"
+    state: present
+  when: qatbench_observability_enabled | bool
+
+- name: Ensure observability output directory exists
+  ansible.builtin.file:
+    path: "{{ qatbench_observability_output_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  when: qatbench_observability_enabled | bool
+
+- name: Deploy observability snapshot script
+  ansible.builtin.template:
+    src: qatbench-observability-snapshot.sh.j2
+    dest: /usr/local/sbin/qatbench-observability-snapshot.sh
+    owner: root
+    group: root
+    mode: "0755"
+  when: qatbench_observability_enabled | bool
